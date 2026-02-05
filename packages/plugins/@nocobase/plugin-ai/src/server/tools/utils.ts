@@ -55,20 +55,39 @@ export function buildPagedToolResult<T>(params: { total: number; offset: number;
 /**
  * 递归截断对象中的长字符串，保持 JSON 结构完整
  */
-export function truncateLongStrings(obj: any, maxLen = MAX_STRING_LENGTH): any {
+// --- FIX: Add circular reference protection ---
+export function truncateLongStrings(obj: any, maxLen = MAX_STRING_LENGTH, visited = new WeakSet()): any {
+  // --- DEBUG: Log entry for verification ---
+  if (!visited.has(obj) && (typeof obj === 'object' || Array.isArray(obj))) {
+    console.log('🚀 truncateLongStrings called. Type:', Array.isArray(obj) ? 'Array' : 'Object');
+  }
+  // --- END DEBUG ---
+
   if (obj === null || obj === undefined) {
     return obj;
   }
   if (typeof obj === 'string') {
     return obj.length > maxLen ? obj.slice(0, maxLen) + '...[truncated]' : obj;
   }
+
+  // --- FIX: Circular reference detection ---
+  if (typeof obj === 'object') {
+    if (visited.has(obj)) {
+      return '[Circular]'; // Prevent infinite recursion
+    }
+    visited.add(obj);
+  }
+  // --- END FIX ---
+
   if (Array.isArray(obj)) {
-    return obj.map((item) => truncateLongStrings(item, maxLen));
+    return obj.map((item) => truncateLongStrings(item, maxLen, visited));
   }
   if (typeof obj === 'object') {
     const result: any = {};
     for (const key in obj) {
-      result[key] = truncateLongStrings(obj[key], maxLen);
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
+        result[key] = truncateLongStrings(obj[key], maxLen, visited);
+      }
     }
     return result;
   }

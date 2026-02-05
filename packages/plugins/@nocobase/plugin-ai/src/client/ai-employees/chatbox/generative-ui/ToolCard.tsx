@@ -26,6 +26,13 @@ export const ToolCard: React.FC<{
     if (typeof tool.args === 'string') {
       const trimmed = tool.args.trim();
       if (trimmed.length > 0) {
+        // 调试
+        // console.log('🔧 ToolCard: args string:', trimmed);
+        // console.log('🔧 ToolCard: raw args string (quoted):', JSON.stringify(trimmed));
+        // console.log('🔧 ToolCard: args length:', trimmed.length);
+        // console.log('🔧 ToolCard: first 200 chars:', trimmed.substring(0, 200));
+        // console.log('🔧 ToolCard: char at pos 150-160:', trimmed.slice(150, 165));
+        // 调试
         try {
           const repaired = jsonrepair(trimmed);
           tool.args = JSON.parse(repaired);
