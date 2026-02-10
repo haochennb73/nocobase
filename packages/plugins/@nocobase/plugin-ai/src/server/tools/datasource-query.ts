@@ -26,6 +26,28 @@ export type QueryCondition = {
   };
 };
 
+// Important: For association fields (e.g., createdBy, attachment),
+// you MUST specify a sub-field like "createdBy.nickname" or "attachment.id".
+// DO NOT use "createdBy: { $eq: 'name' }" — this is invalid.
+\`\`\`
+
+// Correct examples:
+\`\`\`
+// Filter by creator's nickname
+{ "createdBy.nickname": { "$eq": "张三" } }
+
+// Filter documents with any attachment
+{ "attachment.id": { "$notEmpty": true } }
+
+// Filter by specific attachment ID
+{ "attachment.id": { "$eq": 123 } }
+\`\`\`
+
+// Invalid examples (will cause errors):
+\`\`\`
+{ "createdBy": { "$eq": "张三" } }     
+{ "attachment": { "$any": true } }    
+\`\`\`
 
 export type QueryObject =
   | {
@@ -122,6 +144,12 @@ function fixInvalidFilter(filter: any): any {
       value.$not.$empty === true
     ) {
       result['attachment.id'] = { $notEmpty: true };
+      continue;
+    }
+
+    // Handle createdBy / updatedBy: { "$eq": "name" } → { "createdBy.nickname": { "$eq": "name" } }
+    if ((key === 'createdBy' || key === 'updatedBy') && '$eq' in value && typeof value.$eq === 'string') {
+      result[`${key}.nickname`] = { $eq: value.$eq };
       continue;
     }
 
