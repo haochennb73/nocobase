@@ -16,7 +16,7 @@ export class DemoBlockModel extends BlockModel {
     return (
       <div>
         <h1>Hello, CreateNewBlock!</h1>
-        <p>这是一个新的区块模型.</p>
+        <p>这是一个自定义的区块模型.</p>
       </div>
     );
   }
