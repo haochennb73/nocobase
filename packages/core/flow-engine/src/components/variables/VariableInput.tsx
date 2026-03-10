@@ -204,8 +204,10 @@ const VariableInputComponent: React.FC<VariableInputProps> = ({
   useEffect(() => {
     if (!resolvedMetaTreeNode) return;
     if (!Array.isArray(resolvedMetaTree) || innerValue == null) return;
-    const finalValue = resolveValueFromPath?.(resolvedMetaTreeNode) || innerValue;
-    emitChange(finalValue, resolvedMetaTreeNode);
+    // During initial restoration, `innerValue` already represents the persisted value.
+    // Do NOT override it with `resolveValueFromPath`, otherwise truthy defaults (e.g. RunJSValue objects)
+    // may accidentally wipe persisted content when reopening.
+    emitChange(innerValue, resolvedMetaTreeNode);
     setCurrentMetaTreeNode(resolvedMetaTreeNode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedMetaTreeNode]);
@@ -241,12 +243,18 @@ const VariableInputComponent: React.FC<VariableInputProps> = ({
 
   const handleVariableSelect = useCallback(
     (variableValue: string, metaTreeNode?: MetaTreeNode) => {
+      if (!metaTreeNode && variableValue === '') {
+        const cleared = clearValue !== undefined ? clearValue : null;
+        setInnerValue(cleared);
+        emitChange(cleared as any);
+        return;
+      }
       setCurrentMetaTreeNode(metaTreeNode);
       const finalValue = resolveValueFromPath?.(metaTreeNode) || variableValue;
       setInnerValue(finalValue);
       emitChange(finalValue, metaTreeNode);
     },
-    [emitChange, resolveValueFromPath],
+    [emitChange, resolveValueFromPath, clearValue],
   );
 
   const { disabled } = restProps;
@@ -286,7 +294,7 @@ const VariableInputComponent: React.FC<VariableInputProps> = ({
 
   const inputProps = useMemo(() => {
     const baseProps = {
-      value: innerValue ?? '',
+      value: ValueComponent === Input ? innerValue ?? '' : innerValue,
       onChange: handleInputChange,
       disabled,
     };

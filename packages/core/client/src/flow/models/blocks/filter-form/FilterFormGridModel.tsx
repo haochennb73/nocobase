@@ -8,7 +8,7 @@
  */
 
 import { SettingOutlined } from '@ant-design/icons';
-import { AddSubModelButton, FlowSettingsButton, observable, DragOverlayConfig } from '@nocobase/flow-engine';
+import { AddSubModelButton, DragOverlayConfig, FlowSettingsButton, observable } from '@nocobase/flow-engine';
 import React from 'react';
 import { CollectionBlockModel, GridModel } from '../../base';
 import { getAllDataModels } from '../filter-manager/utils';
@@ -45,6 +45,16 @@ export class FilterFormGridModel extends GridModel {
 
   private hiddenRows: any = {};
   readonly loading = observable.ref(false);
+
+  private getAssociationFilterTargetKey(field: any) {
+    const filterTargetKey = field?.targetCollection?.filterTargetKey;
+
+    if (Array.isArray(filterTargetKey)) {
+      return filterTargetKey[0] || 'id';
+    }
+
+    return filterTargetKey || 'id';
+  }
 
   toggleFormFieldsCollapse(collapse: boolean, visibleRows: number) {
     const gridRows = this.props.rows || {};
@@ -103,13 +113,20 @@ export class FilterFormGridModel extends GridModel {
         const collection = model.collection || model.context.collection;
 
         if (collection) {
-          const field = collection.getField(fieldPath);
+          let field;
+          if (fieldPath?.includes('.')) {
+            const fullPath = `${collection.dataSourceKey}.${collection.name}.${fieldPath}`;
+            field = model.context.dataSourceManager?.getCollectionField?.(fullPath);
+          }
+          if (!field) {
+            field = collection.getField?.(fieldPath);
+          }
 
           // 如果是关系字段，需要把 targetKey 拼上，不然筛选时会报错
-          if (field.target) {
+          if (field?.target) {
             return {
               targetId: model.uid,
-              filterPaths: [`${fieldPath}.${field.targetKey}`],
+              filterPaths: [`${fieldPath}.${this.getAssociationFilterTargetKey(field)}`],
             };
           }
         }

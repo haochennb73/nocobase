@@ -7,14 +7,7 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import {
-  ElementProxy,
-  tExpr,
-  createSafeDocument,
-  createSafeWindow,
-  createSafeNavigator,
-  compileRunJs,
-} from '@nocobase/flow-engine';
+import { ElementProxy, tExpr, createSafeDocument, createSafeWindow, createSafeNavigator } from '@nocobase/flow-engine';
 import React from 'react';
 import { BlockModel } from '../../base';
 import { BlockItemCard } from '../../../components';
@@ -70,6 +63,7 @@ JSBlockModel.registerFlow({
   steps: {
     runJs: {
       title: tExpr('Write JavaScript'),
+      useRawParams: true,
       uiSchema: {
         code: {
           type: 'string',
@@ -98,11 +92,11 @@ JSBlockModel.registerFlow({
       },
       defaultParams(ctx) {
         return {
-          version: 'v1',
+          version: 'v2',
           code:
             `// Welcome to the JS block
 // Create powerful interactive components with JavaScript
-ctx.element.innerHTML = \`
+ctx.render(\`
   <div style="padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; max-width: 600px;">
     <h2 style="color: #1890ff; margin: 0 0 20px 0; font-size: 24px; font-weight: 600;">
       🚀 \${ctx.i18n.t('Welcome to JS block', { ns: '` +
@@ -159,7 +153,7 @@ ctx.element.innerHTML = \`
       </p>
     </div>
   </div>
-\`;`.trim(),
+\`);`.trim(),
         };
       },
       async handler(ctx, params) {
@@ -167,11 +161,15 @@ ctx.element.innerHTML = \`
         ctx.onRefReady(ctx.ref, async (element) => {
           ctx.defineProperty('element', {
             get: () => new ElementProxy(element),
+            info: {
+              deprecated: {
+                replacedBy: 'ctx.render',
+              },
+            },
           });
           const navigator = createSafeNavigator();
-          const compiled = await compileRunJs(code);
           await ctx.runjs(
-            compiled,
+            code,
             { window: createSafeWindow({ navigator }), document: createSafeDocument(), navigator },
             { version },
           );

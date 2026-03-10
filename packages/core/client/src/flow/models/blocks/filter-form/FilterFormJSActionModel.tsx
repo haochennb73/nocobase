@@ -26,6 +26,7 @@ FilterFormJSActionModel.registerFlow({
   steps: {
     runJs: {
       title: tExpr('Write JavaScript'),
+      useRawParams: true,
       uiSchema: {
         code: {
           type: 'string',
@@ -53,7 +54,7 @@ FilterFormJSActionModel.registerFlow({
       },
       defaultParams(ctx) {
         return {
-          version: 'v1',
+          version: 'v2',
           code: '',
         };
       },

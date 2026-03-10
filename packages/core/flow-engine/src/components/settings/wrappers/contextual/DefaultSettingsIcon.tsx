@@ -7,9 +7,9 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { ExclamationCircleOutlined, MenuOutlined } from '@ant-design/icons';
+import { ExclamationCircleOutlined, MenuOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import type { DropdownProps, MenuProps } from 'antd';
-import { App, Dropdown, Modal } from 'antd';
+import { App, Dropdown, Modal, Tooltip, theme } from 'antd';
 import React, { startTransition, useCallback, useEffect, useMemo, useState, FC } from 'react';
 import { FlowModel } from '../../../../models';
 import type { FlowModelExtraMenuItem } from '../../../../models';
@@ -17,6 +17,7 @@ import type { StepDefinition, StepUIMode } from '../../../../types';
 import {
   getT,
   resolveStepUiSchema,
+  resolveStepDisabledInSettings,
   shouldHideStepInSettings,
   resolveDefaultParams,
   resolveUiMode,
@@ -33,6 +34,8 @@ interface StepInfo {
   title: string;
   modelKey?: string;
   uiMode?: StepUIMode;
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 interface FlowInfo {
@@ -150,12 +153,29 @@ const componentMap = {
 const MenuLabelItem = ({ title, uiMode, itemProps }) => {
   const type = uiMode?.type || uiMode;
   const Component = type ? componentMap[type] : null;
+  const disabled = !!itemProps?.disabled;
+  const disabledReason = itemProps?.disabledReason;
+  const disabledIconColor = itemProps?.disabledIconColor;
 
-  if (!Component) {
-    return <>{title}</>;
+  const content = (() => {
+    if (!Component) {
+      return <>{title}</>;
+    }
+    return <Component title={title} {...itemProps} />;
+  })();
+
+  if (!disabled) {
+    return content;
   }
 
-  return <Component title={title} {...itemProps} />;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      {content}
+      <Tooltip title={disabledReason} placement="right" destroyTooltipOnHide>
+        <QuestionCircleOutlined style={{ color: disabledIconColor }} />
+      </Tooltip>
+    </span>
+  );
 };
 
 /**
@@ -180,10 +200,17 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
 }) => {
   const { message } = App.useApp();
   const t = useMemo(() => getT(model), [model]);
+  const { token } = theme.useToken();
+  const disabledIconColor = token?.colorTextTertiary || token?.colorTextDescription || token?.colorTextSecondary;
   const [visible, setVisible] = useState(false);
   // 当模型发生子模型替换/增删等变化时，强制刷新菜单数据
   const [refreshTick, setRefreshTick] = useState(0);
   const [extraMenuItems, setExtraMenuItems] = useState<FlowModelExtraMenuItem[]>([]);
+  const [configurableFlowsAndSteps, setConfigurableFlowsAndSteps] = useState<FlowInfo[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const closeDropdown = useCallback(() => {
+    setVisible(false);
+  }, []);
   const handleOpenChange: DropdownProps['onOpenChange'] = useCallback((nextOpen: boolean, info) => {
     if (info.source === 'trigger' || nextOpen) {
       // 当鼠标快速滑过时，终止菜单的渲染，防止卡顿
@@ -234,7 +261,7 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
     return () => {
       mounted = false;
     };
-  }, [model, menuLevels, t, refreshTick, visible, message]);
+  }, [model, menuLevels, t, refreshTick, visible]);
 
   // 统一的复制 UID 方法
   const copyUidToClipboard = useCallback(
@@ -292,6 +319,7 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
   );
 
   const handleDelete = useCallback(() => {
+    closeDropdown();
     Modal.confirm({
       title: t('Confirm delete'),
       icon: <ExclamationCircleOutlined />,
@@ -312,7 +340,7 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
         }
       },
     });
-  }, [model]);
+  }, [closeDropdown, model, t]);
 
   const handleStepConfiguration = useCallback(
     (key: string) => {
@@ -345,6 +373,7 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
       }
 
       try {
+        closeDropdown();
         targetModel.openFlowSettings({
           flowKey,
           stepKey,
@@ -353,7 +382,32 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
         console.log(t('Configuration popup cancelled or error'), ':', error);
       }
     },
-    [model],
+    [closeDropdown, model, t],
+  );
+
+  const isStepMenuItemDisabled = useCallback(
+    (key: string) => {
+      const cleanKey = key.includes('-') && /^(.+)-\d+$/.test(key) ? key.replace(/-\d+$/, '') : key;
+      const keys = cleanKey.split(':');
+      let modelKey: string | undefined;
+      let flowKey: string | undefined;
+      let stepKey: string | undefined;
+
+      if (keys.length === 3) {
+        [modelKey, flowKey, stepKey] = keys;
+      } else if (keys.length === 2) {
+        [flowKey, stepKey] = keys;
+      } else {
+        return false;
+      }
+
+      return configurableFlowsAndSteps.some(({ flow, steps, modelKey: flowModelKey }: FlowInfo) => {
+        const sameModel = (flowModelKey || undefined) === modelKey;
+        if (!sameModel || flow.key !== flowKey) return false;
+        return steps.some((stepInfo: StepInfo) => stepInfo.stepKey === stepKey && !!stepInfo.disabled);
+      });
+    },
+    [configurableFlowsAndSteps],
   );
 
   const handleMenuClick = useCallback(
@@ -363,18 +417,25 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
       const cleanKey = key.includes('-') && /^(.+)-\d+$/.test(key) ? key.replace(/-\d+$/, '') : key;
 
       if (cleanKey.startsWith('copy-pop-uid:')) {
+        closeDropdown();
         handleCopyPopupUid(cleanKey);
         return;
       }
 
       const extra = extraMenuItems.find((it) => it?.key === originalKey || it?.key === cleanKey);
       if (extra?.onClick) {
+        closeDropdown();
         extra.onClick();
+        return;
+      }
+
+      if (isStepMenuItemDisabled(cleanKey)) {
         return;
       }
 
       switch (cleanKey) {
         case 'copy-uid':
+          closeDropdown();
           handleCopyUid();
           break;
         case 'delete':
@@ -385,7 +446,15 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
           break;
       }
     },
-    [handleCopyUid, handleDelete, handleStepConfiguration, handleCopyPopupUid, extraMenuItems],
+    [
+      closeDropdown,
+      handleCopyUid,
+      handleDelete,
+      handleStepConfiguration,
+      handleCopyPopupUid,
+      extraMenuItems,
+      isStepMenuItemDisabled,
+    ],
   );
 
   // 获取单个模型的可配置flows和steps
@@ -409,6 +478,7 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
                 if (await shouldHideStepInSettings(targetModel, flow, actionStep)) {
                   return null;
                 }
+                const disabledState = await resolveStepDisabledInSettings(targetModel, flow, actionStep as any);
                 let uiMode: any = await resolveUiMode(actionStep.uiMode, (targetModel as any).context);
                 // 检查是否有uiSchema（静态或动态）
                 const hasStepUiSchema = actionStep.uiSchema != null;
@@ -458,6 +528,8 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
                   title: t(stepTitle) || stepKey,
                   modelKey, // 添加模型标识
                   uiMode,
+                  disabled: disabledState.disabled,
+                  disabledReason: disabledState.reason,
                 };
               }),
             ).then((steps) => steps.filter(Boolean));
@@ -493,9 +565,6 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
     }
     return result;
   }, [model, menuLevels, getModelConfigurableFlowsAndSteps]);
-
-  const [configurableFlowsAndSteps, setConfigurableFlowsAndSteps] = useState<FlowInfo[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const triggerRebuild = () => {
@@ -603,10 +672,14 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
               },
               ...((uiMode as any)?.props || {}),
               itemKey: (uiMode as any)?.key,
+              disabled: !!stepInfo.disabled,
+              disabledReason: stepInfo.disabledReason,
+              disabledIconColor,
             };
             items.push({
               key: uniqueKey,
-              label: <MenuLabelItem title={t(stepInfo.title)} uiMode={uiMode} itemProps={itemProps} />,
+              label: <MenuLabelItem title={stepInfo.title} uiMode={uiMode} itemProps={itemProps} />,
+              disabled: !!stepInfo.disabled,
             });
           });
           if (flow.options.divider === 'bottom') {
@@ -648,7 +721,17 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
 
                 items.push({
                   key: uniqueKey,
-                  label: t(stepInfo.title),
+                  label: stepInfo.disabled ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {stepInfo.title}
+                      <Tooltip title={stepInfo.disabledReason} placement="right" destroyTooltipOnHide>
+                        <QuestionCircleOutlined style={{ color: disabledIconColor }} />
+                      </Tooltip>
+                    </span>
+                  ) : (
+                    stepInfo.title
+                  ),
+                  disabled: !!stepInfo.disabled,
                 });
               });
             });
@@ -663,7 +746,17 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
 
                 subMenuChildren.push({
                   key: uniqueKey,
-                  label: t(stepInfo.title),
+                  label: stepInfo.disabled ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {stepInfo.title}
+                      <Tooltip title={stepInfo.disabledReason} placement="right" destroyTooltipOnHide>
+                        <QuestionCircleOutlined style={{ color: disabledIconColor }} />
+                      </Tooltip>
+                    </span>
+                  ) : (
+                    stepInfo.title
+                  ),
+                  disabled: !!stepInfo.disabled,
                 });
               });
             });
@@ -679,7 +772,7 @@ export const DefaultSettingsIcon: React.FC<DefaultSettingsIconProps> = ({
     }
 
     return items;
-  }, [configurableFlowsAndSteps, flattenSubMenus, t]);
+  }, [configurableFlowsAndSteps, disabledIconColor, flattenSubMenus, t]);
 
   // 向菜单项添加额外按钮
   const finalMenuItems = useMemo((): NonNullable<MenuProps['items']> => {

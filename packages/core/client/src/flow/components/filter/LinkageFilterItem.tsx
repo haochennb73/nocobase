@@ -10,6 +10,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Input, InputNumber, Select, Space, Switch } from 'antd';
 import merge from 'lodash/merge';
+import uniqBy from 'lodash/uniqBy';
 import {
   VariableInput,
   type MetaTreeNode,
@@ -22,6 +23,7 @@ import {
 import { NumberPicker } from '@formily/antd-v5';
 import { enumToOptions, translateOptions } from '../../internal/utils/enumOptionsUtils';
 import { lazy } from '../../../lazy-helper';
+import { mergeItemMetaTreeForAssignValue } from '../FieldAssignValueInput';
 
 const { DateFilterDynamicComponent: DateFilterDynamicComponentLazy } = lazy(
   () => import('../../models/blocks/filter-form/fields/date-time/components/DateFilterDynamicComponent'),
@@ -39,6 +41,8 @@ export interface LinkageFilterItemProps {
   /** 条件值对象（响应式） */
   value: LinkageFilterItemValue;
   model: FlowModel;
+  /** 向变量树额外注入节点（置于根部） */
+  extraMetaTree?: MetaTreeNode[];
 }
 
 function createStaticInputRenderer(
@@ -87,6 +91,18 @@ function createStaticInputRenderer(
 }
 
 type OperatorMeta = { value: string; label: string; noValue?: boolean; schema?: any; selected?: boolean };
+type FilterableChild = {
+  name: string;
+  title?: string;
+  schema?: any;
+  operators?: OperatorMeta[];
+};
+type FieldInterfaceDef = {
+  filterable?: {
+    operators?: Array<OperatorMeta & { visible?: (meta: MetaTreeNode) => boolean }>;
+    children?: FilterableChild[];
+  };
+};
 
 // 当左侧变量不是 collection field（无 interface）时，按字符串类型推断操作符
 const fallbackStringOperators: OperatorMeta[] = [
@@ -98,11 +114,98 @@ const fallbackStringOperators: OperatorMeta[] = [
   { value: '$notEmpty', label: 'is not empty', noValue: true },
 ];
 
+export function mergeExtraMetaTreeWithBase(
+  baseMetaTree: MetaTreeNode[] | undefined,
+  extraMetaTree?: MetaTreeNode[],
+): MetaTreeNode[] {
+  const base = Array.isArray(baseMetaTree) ? baseMetaTree : [];
+  const extra = Array.isArray(extraMetaTree) ? extraMetaTree : [];
+  if (!extra.length) return base;
+
+  const extraItem = extra.find((node) => node?.name === 'item');
+  if (!extraItem) {
+    return [...extra, ...base];
+  }
+
+  const mergedBase = mergeItemMetaTreeForAssignValue(base, [extraItem]);
+  const extraNonItem = extra.filter((node) => node?.name !== 'item');
+  return [...extraNonItem, ...mergedBase];
+}
+
+function toFilterableChildMetaNode(node: MetaTreeNode, child: FilterableChild): MetaTreeNode {
+  return {
+    name: child.name,
+    title: child.title || child.name,
+    type: child.schema?.type || 'string',
+    // 为子项赋予可用 interface，以便后续能拿到默认操作符。
+    interface: child.schema?.['x-component'] === 'Select' ? 'select' : 'input',
+    // 子项自定义 operators 通过 schema 透传，供 LinkageFilterItem 优先读取。
+    uiSchema: { ...(child.schema || {}), 'x-filter-operators': child.operators },
+    paths: [...(node.paths || []), child.name],
+    parentTitles: [...(node.parentTitles || []), node.title],
+  };
+}
+
+async function enhanceMetaTreeNodeWithFilterableChildren(
+  node: MetaTreeNode,
+  getFieldInterface?: (name: string) => FieldInterfaceDef | undefined,
+): Promise<MetaTreeNode> {
+  const fieldInterface = node.interface && getFieldInterface ? getFieldInterface(node.interface) : undefined;
+  const filterableChildren = Array.isArray(fieldInterface?.filterable?.children)
+    ? fieldInterface?.filterable?.children
+    : [];
+  const extraChildren = filterableChildren.map((child) => toFilterableChildMetaNode(node, child));
+
+  const mergeChildren = async (baseChildren: MetaTreeNode[]) => {
+    const enhancedChildren = await Promise.all(
+      baseChildren.map((child) => enhanceMetaTreeNodeWithFilterableChildren(child, getFieldInterface)),
+    );
+    const merged = [...enhancedChildren, ...extraChildren];
+    return uniqBy(merged, (childNode) => childNode.name);
+  };
+
+  if (typeof node.children === 'function') {
+    const originalChildren = node.children;
+    return {
+      ...node,
+      children: async () => {
+        const loadedChildren = await originalChildren();
+        const baseChildren = Array.isArray(loadedChildren) ? loadedChildren : [];
+        return await mergeChildren(baseChildren);
+      },
+    };
+  }
+
+  if (Array.isArray(node.children)) {
+    return {
+      ...node,
+      children: await mergeChildren(node.children as MetaTreeNode[]),
+    };
+  }
+
+  if (!extraChildren.length) {
+    return node;
+  }
+
+  return {
+    ...node,
+    children: extraChildren,
+  };
+}
+
+export async function enhanceMetaTreeWithFilterableChildren(
+  metaTree: MetaTreeNode[] | undefined,
+  getFieldInterface?: (name: string) => FieldInterfaceDef | undefined,
+): Promise<MetaTreeNode[]> {
+  const nodes = Array.isArray(metaTree) ? metaTree : [];
+  return await Promise.all(nodes.map((node) => enhanceMetaTreeNodeWithFilterableChildren(node, getFieldInterface)));
+}
+
 /**
  * LinkageFilterItem：左/右均为可变量输入，适用于联动规则等“前端逻辑”场景
  */
 export const LinkageFilterItem: React.FC<LinkageFilterItemProps> = observer((props) => {
-  const { value, model } = props;
+  const { value, model, extraMetaTree } = props;
   const ctx = useFlowViewContext();
   const t = model.translate;
   const { path: leftPath, operator: selectedOperator, value: rightOperandValue } = value || {};
@@ -111,22 +214,25 @@ export const LinkageFilterItem: React.FC<LinkageFilterItemProps> = observer((pro
   const [leftFieldMeta, setLeftFieldMeta] = useState<MetaTreeNode | null>(null);
   // 左侧变更后是否需要默认选择第一个操作符
   const shouldDefaultOperatorRef = useRef(false);
-  // 操作符列表：优先使用字段接口提供的 operators（与 VariableFilterItem 一致）
-  const leftFieldSignature = useMemo(() => {
-    if (!leftFieldMeta) return '';
-    const interfaceName = leftFieldMeta.interface || '';
-    const fieldPath = Array.isArray(leftFieldMeta.paths) ? leftFieldMeta.paths.join('.') : '';
-    return `${interfaceName}|${fieldPath}`;
-  }, [leftFieldMeta]);
+  // 操作符列表：优先使用子项 schema 注入的 operators，其次回退到字段接口 operators。
 
   const operatorMetadataList: OperatorMeta[] = useMemo(() => {
-    if (leftFieldMeta?.interface) {
+    if (leftFieldMeta) {
       const dataSourceManager = model.context.app.dataSourceManager;
-      const fieldInterface = dataSourceManager.collectionFieldInterfaceManager.getFieldInterface(
-        leftFieldMeta.interface,
-      );
-      const operatorList = fieldInterface.filterable.operators || [];
+      const fieldInterface = leftFieldMeta.interface
+        ? (dataSourceManager.collectionFieldInterfaceManager.getFieldInterface(
+            leftFieldMeta.interface,
+          ) as FieldInterfaceDef)
+        : undefined;
+      const schemaOperators = (leftFieldMeta as any)?.uiSchema?.['x-filter-operators'] as
+        | Array<OperatorMeta & { visible?: (meta: MetaTreeNode) => boolean }>
+        | undefined;
+      const operatorList =
+        (Array.isArray(schemaOperators) && schemaOperators.length
+          ? schemaOperators
+          : fieldInterface?.filterable?.operators) || fallbackStringOperators;
       const visibleOperators = operatorList.filter(
+        // @ts-ignore
         (operatorItem) => !operatorItem.visible || operatorItem.visible(leftFieldMeta),
       );
       const mappedList = visibleOperators.map((operatorItem) => ({
@@ -139,9 +245,8 @@ export const LinkageFilterItem: React.FC<LinkageFilterItemProps> = observer((pro
       }));
       return mappedList;
     }
-    // 无 interface：按字符串类型兜底，保证可用性
-    return leftFieldMeta ? fallbackStringOperators : [];
-  }, [leftFieldSignature, model]);
+    return [];
+  }, [leftFieldMeta, model]);
 
   const operatorSelectOptions = useMemo(() => {
     // 在展示阶段再做翻译，且依赖 operatorMetadataList 值；避免翻译函数进入 operatorMetadataList 的依赖链
@@ -214,19 +319,26 @@ export const LinkageFilterItem: React.FC<LinkageFilterItemProps> = observer((pro
   const rightMetaTreeGetter = useMemo(() => {
     return async () => {
       const baseMetaTree = (model?.context.getPropertyMetaTree() || ctx.getPropertyMetaTree()) as MetaTreeNode[];
+      const mergedMetaTree = mergeExtraMetaTreeWithBase(baseMetaTree, extraMetaTree);
       return [
         { title: t('Constant'), name: 'constant', type: 'string', paths: ['constant'] },
         { title: t('Null'), name: 'null', type: 'object', paths: ['null'] },
-        ...(Array.isArray(baseMetaTree) ? baseMetaTree : []),
+        ...mergedMetaTree,
       ];
     };
-  }, [ctx, model, t]);
+  }, [ctx, model, t, extraMetaTree]);
 
   // 左侧变量树：默认整棵 ctx（不追加 Constant/Null），确保可获取字段 interface
-  const leftMetaTreeGetter = useCallback(() => {
+  const leftMetaTreeGetter = useCallback(async () => {
     const tree = model?.context?.getPropertyMetaTree?.() || ctx.getPropertyMetaTree();
-    return tree;
-  }, [ctx, model]);
+    const base = Array.isArray(tree) ? tree : [];
+    const merged = mergeExtraMetaTreeWithBase(base, extraMetaTree);
+    const getFieldInterface = (name: string) =>
+      model.context.app?.dataSourceManager?.collectionFieldInterfaceManager?.getFieldInterface?.(name) as
+        | FieldInterfaceDef
+        | undefined;
+    return await enhanceMetaTreeWithFilterableChildren(merged, getFieldInterface);
+  }, [ctx, model, extraMetaTree]);
 
   // 右侧 converters：常量/空值特殊处理；变量沿用默认（表达式）
   const rightSideConverters = useMemo<Converters>(() => {

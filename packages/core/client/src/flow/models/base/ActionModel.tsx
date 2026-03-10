@@ -243,17 +243,23 @@ ActionModel.registerFlow({
       handler(ctx, params) {
         const { title, tooltip, ...rest } = params;
         ctx.model.setProps({
-          title: title ? ctx.t(title) : undefined,
-          tooltip: tooltip ? ctx.t(tooltip) : undefined,
+          title: ctx.t(title, { ns: 'lm-flow-engine' }),
+          tooltip: ctx.t(tooltip, { ns: 'lm-flow-engine' }),
           ...rest,
         });
       },
     },
-    aclCheck: {
-      use: 'aclCheck',
-    },
     linkageRules: {
       use: 'actionLinkageRules',
+    },
+  },
+});
+
+ActionModel.registerFlow({
+  key: 'buttonAclSettings',
+  steps: {
+    aclCheck: {
+      use: 'aclCheck',
     },
   },
 });

@@ -12,6 +12,7 @@ import { ButtonProps } from 'antd';
 import { AxiosRequestConfig } from 'axios';
 import { ActionModel } from '../../base';
 import { submitHandler } from './submitHandler';
+import { getValidationNamePathsExcludingHiddenModels } from './submitValues';
 
 export class FormActionModel extends ActionModel {}
 
@@ -52,10 +53,19 @@ FormSubmitActionModel.registerFlow({
       async handler(ctx, params) {
         if (params.enable) {
           try {
-            await ctx.form.validateFields();
+            const validateNamePaths = ctx?.flowSettingsEnabled
+              ? getValidationNamePathsExcludingHiddenModels(ctx.blockModel)
+              : null;
+            if (Array.isArray(validateNamePaths)) {
+              if (validateNamePaths.length) {
+                await ctx.form.validateFields(validateNamePaths as any);
+              }
+            } else {
+              await ctx.form.validateFields();
+            }
             const confirmed = await ctx.modal.confirm({
-              title: ctx.t(params.title),
-              content: ctx.t(params.content),
+              title: ctx.t(params.title, { ns: 'lm-flow-engine' }),
+              content: ctx.t(params.content, { ns: 'lm-flow-engine' }),
               okText: ctx.t('Confirm'),
               cancelText: ctx.t('Cancel'),
             });
@@ -80,6 +90,7 @@ FormSubmitActionModel.registerFlow({
         try {
           ctx.model.setProps('loading', true);
           await submitHandler(ctx, params);
+          ctx.message.success(ctx.t('Saved successfully'));
           ctx.model.setProps('loading', false);
         } catch (error) {
           ctx.model.setProps('loading', false);
@@ -87,19 +98,14 @@ FormSubmitActionModel.registerFlow({
           ctx.message.error(ctx.t('Save failed'));
           console.error('Form submission error:', error);
           ctx.exit();
+        } finally {
+          ctx.model.setProps('loading', false);
         }
       },
     },
     refreshAndClose: {
       async handler(ctx) {
         if (ctx.view) {
-          const viewUid = ctx.view.inputArgs?.viewUid;
-          const actionModel = ctx.engine.getModel(viewUid, true);
-
-          if (actionModel) {
-            actionModel.context.blockModel?.resource?.refresh();
-          }
-
           ctx.view.close();
         }
       },

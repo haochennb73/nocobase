@@ -198,16 +198,17 @@ const InternalSchemaSettingsDropdown: React.FC<SchemaSettingsProps> = React.memo
 
   const handleMouseEnter = () => {
     setOpenDropdown(true);
+    setVisible(true);
   };
 
   // 从这里截断，可以保证每次显示时都是最新状态的菜单列表
-  if (!openDropdown) {
-    return (
-      <div onMouseEnter={handleMouseEnter} data-testid={props['data-testid']}>
-        {typeof title === 'string' ? <span>{title}</span> : title}
-      </div>
-    );
-  }
+  // if (!openDropdown) {
+  //   return (
+  //     <div onMouseEnter={handleMouseEnter} data-testid={props['data-testid']}>
+  //       {typeof title === 'string' ? <span>{title}</span> : title}
+  //     </div>
+  //   );
+  // }
 
   const items = getMenuItems(() => props.children);
 
@@ -700,7 +701,7 @@ export const SchemaSettingsActionModalItem: FC<SchemaSettingsActionModalItemProp
   const upLevelActiveFields = useFormActiveFields();
   const parentZIndex = useZIndexContext();
 
-  const zIndex = getZIndex('modal', parentZIndex + 10, 0);
+  const zIndex = Math.max(getZIndex('modal', parentZIndex + 10, 0), ICON_POPUP_Z_INDEX + 200);
 
   const form = useMemo(
     () =>
@@ -879,7 +880,12 @@ export const SchemaSettingsModalItem: FC<SchemaSettingsModalItemProps> = (props)
         const values = asyncGetInitialValues ? await asyncGetInitialValues() : initialValues;
         const schema = _.isFunction(props.schema) ? props.schema() : props.schema;
         FormDialog(
-          { title: schema.title || title, width, rootClassName: dialogRootClassName },
+          {
+            title: schema.title || title,
+            width,
+            rootClassName: dialogRootClassName,
+            getContainer: () => document.body,
+          },
           () => {
             return (
               <VariableScopeContext.Provider value={variableScopeContext}>

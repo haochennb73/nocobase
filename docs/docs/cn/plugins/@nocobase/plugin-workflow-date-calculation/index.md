@@ -6,10 +6,10 @@ supportedVersions:
   - 2.x
 description: |
   可用于在工作流中对日期进行操作求值，如加减、比较操作，格式化等。
-isFree: false
-builtIn: false
+isFree: true
+builtIn: true
 defaultEnabled: false
-points: 2
+editionLevel: 0
 ---
 
 # 工作流: 日期计算节点

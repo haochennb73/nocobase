@@ -7,11 +7,13 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { tExpr, FlowModel, FlowModelRenderer, observable } from '@nocobase/flow-engine';
+import { FlowModel, FlowModelRenderer, observable, tExpr } from '@nocobase/flow-engine';
 import { useRequest } from 'ahooks';
 import React from 'react';
 import { Icon } from '../../../../icon';
+import type { NocoBaseDesktopRoute } from '../../../../route-switch/antd/admin-layout/convertRoutesToSchema';
 import { SkeletonFallback } from '../../../components/SkeletonFallback';
+import { TextAreaWithContextSelector } from '../../../components/TextAreaWithContextSelector';
 import { RemoteFlowModelRenderer } from '../../../FlowPage';
 import { BlockGridModel } from '../BlockGridModel';
 
@@ -33,6 +35,25 @@ function PageTabChildrenRenderer({ ctx, options }) {
   return <FlowModelRenderer model={data} fallback={<SkeletonFallback style={{ margin }} />} />;
 }
 
+/**
+ * 统一归一化 `desktopRoutes:updateOrCreate` 的返回值。
+ *
+ * 该接口在 create/update 场景下可能分别返回对象或数组，
+ * 这里始终抽出第一条 route 记录，便于把持久化 id 回填到前端模型。
+ *
+ * @param payload - 接口返回的 data 节点
+ * @returns 可用于回填的 route 记录
+ */
+function normalizePersistedRoute(payload: unknown): Partial<NocoBaseDesktopRoute> | undefined {
+  if (Array.isArray(payload)) {
+    return payload.find((item): item is Partial<NocoBaseDesktopRoute> => !!item && typeof item === 'object');
+  }
+  if (payload && typeof payload === 'object') {
+    return payload as Partial<NocoBaseDesktopRoute>;
+  }
+  return undefined;
+}
+
 export class BasePageTabModel extends FlowModel<{
   subModels: {
     grid: BlockGridModel;
@@ -42,11 +63,17 @@ export class BasePageTabModel extends FlowModel<{
     super.onInit(options);
     this.context.defineProperty('tabActive', {
       value: observable.ref(true), // TODO: 默认值应该是 false，且需要在 onMount 中设置为 true。但现在 onMount 有 BUG，会在每次切换 tab 时触发
+      info: {
+        description: 'Whether current tab is active (observable.ref).',
+        detail: 'observable.ref<boolean>',
+      },
     });
   }
 
   getTabTitle(defaultTitle = 'Untitled') {
-    return this.context.t(this.stepParams.pageTabSettings?.tab?.title || defaultTitle);
+    const translatedDefaultTitle = this.context.t(defaultTitle, { ns: 'client' });
+    const translatedTitle = this.context.t(this.stepParams.pageTabSettings?.tab?.title, { ns: 'lm-desktop-routes' });
+    return translatedTitle || translatedDefaultTitle;
   }
 
   getTabIcon() {
@@ -90,6 +117,19 @@ BasePageTabModel.registerFlow({
           'x-decorator': 'FormItem',
           required: true,
         },
+        documentTitle: {
+          type: 'string',
+          title: tExpr('Document title'),
+          description: tExpr(
+            'Used as the browser tab title when this tab is active. Supports variables. Leave empty to use Tab name.',
+          ),
+          'x-decorator': 'FormItem',
+          'x-component': TextAreaWithContextSelector,
+          'x-component-props': {
+            rows: 1,
+            maxRows: 6,
+          },
+        },
         icon: {
           title: tExpr('Icon'),
           'x-decorator': 'FormItem',
@@ -97,8 +137,11 @@ BasePageTabModel.registerFlow({
         },
       },
       async handler(ctx, params) {
-        ctx.model.setProps('title', params.title);
+        const translate = typeof ctx?.t === 'function' ? ctx.t.bind(ctx) : (value: string) => value;
+        ctx.model.setProps('title', translate(params.title, { ns: 'lm-desktop-routes' }));
         ctx.model.setProps('icon', params.icon);
+        const pageModel = ctx.engine.getModel(ctx.model.parentId) as { updateDocumentTitle?: () => Promise<void> };
+        void pageModel?.updateDocumentTitle?.();
       },
     },
   },
@@ -126,7 +169,8 @@ export class RootPageTabModel extends BasePageTabModel {
 
   async save() {
     const json = this.serialize();
-    await this.context.api.request({
+    const documentTitle = this.stepParams?.pageTabSettings?.tab?.documentTitle;
+    const response = await this.context.api.request({
       method: 'post',
       url: 'desktopRoutes:updateOrCreate',
       params: {
@@ -138,9 +182,23 @@ export class RootPageTabModel extends BasePageTabModel {
         icon: this.getTabIcon(),
         options: {
           flowRegistry: json.flowRegistry,
+          documentTitle,
         },
       },
     });
+    const persistedRoute = normalizePersistedRoute(response?.data?.data);
+
+    // 新建 tab 首次保存后需要立即拿到持久化 route id，拖拽排序会直接依赖它。
+    if (persistedRoute) {
+      this.setProps('route', {
+        ...this.props.route,
+        ...persistedRoute,
+        options: {
+          ...this.props.route?.options,
+          ...persistedRoute.options,
+        },
+      });
+    }
   }
 
   async destroy() {

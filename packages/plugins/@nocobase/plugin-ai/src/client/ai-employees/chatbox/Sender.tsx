@@ -10,6 +10,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Sender as AntSender } from '@ant-design/x';
 import { GetRef } from 'antd';
+import { css } from '@emotion/css';
 import { useT } from '../../locale';
 import { SenderFooter } from './SenderFooter';
 import { SenderHeader } from './SenderHeader';
@@ -18,6 +19,7 @@ import { useChatMessagesStore } from './stores/chat-messages';
 import { useChatMessageActions } from './hooks/useChatMessageActions';
 import { useChatBoxStore } from './stores/chat-box';
 import { useChatBoxActions } from './hooks/useChatBoxActions';
+import { useUploadFiles } from './hooks/useUploadFiles';
 import _ from 'lodash';
 
 const useSendMessage = () => {
@@ -64,6 +66,11 @@ const useSendMessage = () => {
 
 export const Sender: React.FC = () => {
   const t = useT();
+  const senderClassName = css`
+    .ant-sender-content {
+      padding: 16px;
+    }
+  `;
   const [handleSubmit] = useSendMessage();
   const senderRef = useRef<GetRef<typeof AntSender> | null>(null);
 
@@ -71,6 +78,9 @@ export const Sender: React.FC = () => {
   const setSenderValue = useChatBoxStore.use.setSenderValue();
   const currentEmployee = useChatBoxStore.use.currentEmployee();
   const setSenderRef = useChatBoxStore.use.setSenderRef();
+
+  const setAttachments = useChatMessagesStore.use.setAttachments();
+  const uploadProps = useUploadFiles();
 
   const responseLoading = useChatMessagesStore.use.responseLoading();
 
@@ -92,25 +102,111 @@ export const Sender: React.FC = () => {
     setValue(senderValue);
   }, [senderValue]);
 
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    let file = null;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file') {
+        file = items[i].getAsFile();
+        break;
+      }
+    }
+
+    if (!file) {
+      return;
+    }
+    e.preventDefault();
+
+    const uid = Date.now().toString();
+    const rawFile = file;
+    const uploadFile = {
+      uid,
+      name: rawFile.name,
+      status: 'uploading',
+      originFileObj: rawFile,
+      percent: 0,
+      type: rawFile.type,
+      size: rawFile.size,
+    };
+
+    setAttachments((prev) => [...prev, uploadFile]);
+    const { customRequest, data, headers, action } = uploadProps;
+
+    if (customRequest) {
+      customRequest({
+        file: rawFile,
+        filename: 'file',
+        data,
+        headers,
+        action,
+        onProgress: ({ percent }) => {
+          setAttachments((prev) =>
+            prev.map((item) => {
+              if (item.uid === uid) {
+                return { ...item, percent };
+              }
+              return item;
+            }),
+          );
+        },
+        onSuccess: (response, xhr) => {
+          const fileData = response?.data;
+          setAttachments((prev) =>
+            prev.map((item) => {
+              if (item.uid === uid) {
+                return {
+                  ...item,
+                  status: 'done',
+                  response: response,
+                  ...fileData,
+                  url: fileData?.url || item.url,
+                };
+              }
+              return item;
+            }),
+          );
+        },
+        onError: (err) => {
+          setAttachments((prev) =>
+            prev.map((item) => {
+              if (item.uid === uid) {
+                return { ...item, status: 'error', error: err };
+              }
+              return item;
+            }),
+          );
+        },
+      });
+    }
+  };
+
   return (
-    <AntSender
-      // components={{
-      //   input: VariableInput,
-      // }}
-      value={value}
-      ref={senderRef}
-      onChange={(value) => {
-        setValue(value);
+    <div
+      style={{
+        margin: '8px 16px',
       }}
-      onSubmit={handleSubmit}
-      onCancel={cancelRequest}
-      header={<SenderHeader />}
-      loading={responseLoading}
-      footer={({ components }) => <SenderFooter components={components} handleSubmit={handleSubmit} />}
-      disabled={!currentEmployee}
-      // placeholder={!currentEmployee ? t('Please choose an AI employee') : senderPlaceholder}
-      actions={false}
-      autoSize={{ minRows: 2, maxRows: 8 }}
-    />
+    >
+      <AntSender
+        // components={{
+        //   input: VariableInput,
+        // }}
+        className={senderClassName}
+        value={value}
+        ref={senderRef}
+        onChange={(value) => {
+          setValue(value);
+        }}
+        onPaste={handlePaste}
+        onSubmit={handleSubmit}
+        onCancel={cancelRequest}
+        header={<SenderHeader />}
+        loading={responseLoading}
+        footer={({ components }) => <SenderFooter components={components} handleSubmit={handleSubmit} />}
+        disabled={!currentEmployee}
+        placeholder={t('Enter your question')}
+        actions={false}
+        autoSize={{ minRows: 2, maxRows: 8 }}
+      />
+    </div>
   );
 };

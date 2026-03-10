@@ -7,9 +7,9 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { LockOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { LockOutlined, QuestionCircleOutlined, EditOutlined } from '@ant-design/icons';
 import { css } from '@emotion/css';
-import { capitalize } from 'lodash';
+import { capitalize, debounce } from 'lodash';
 import {
   DisplayItemModel,
   DragHandler,
@@ -27,20 +27,33 @@ import {
   FlowModelProvider,
   FlowErrorFallback,
 } from '@nocobase/flow-engine';
-import { TableColumnProps, Tooltip, Input } from 'antd';
+import { TableColumnProps, Tooltip, Input, Space, Divider } from 'antd';
 import { ErrorBoundary } from 'react-error-boundary';
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useMemo, useEffect } from 'react';
 import { SubTableFieldModel } from '.';
-import { FieldModel } from '../../../base';
-import { EditFormModel } from '../../../blocks/form/EditFormModel';
-import { FieldDeletePlaceholder } from '../../../blocks/table/TableColumnModel';
+import { FieldModel } from '../../../base/FieldModel';
+import { FieldDeletePlaceholder, CustomWidth } from '../../../blocks/table/TableColumnModel';
+import { buildDynamicNamePath } from '../../../blocks/form/dynamicNamePath';
 
-function FieldWithoutPermissionPlaceholder({ targetModel }) {
+const SubTableRowRuleBinder: React.FC<{ model: any }> = ({ model }) => {
+  React.useEffect(() => {
+    const emitter = model?.flowEngine?.emitter;
+    if (!emitter) return;
+    void emitter.emitAsync('model:mounted', { uid: model?.uid, model });
+    return () => {
+      void emitter.emitAsync('model:unmounted', { uid: model?.uid, model });
+      model?.dispose?.();
+    };
+  }, [model]);
+  return null;
+};
+
+export function FieldWithoutPermissionPlaceholder({ targetModel }) {
   const t = targetModel.context.t;
   const fieldModel = targetModel;
-  const collection = fieldModel.collectionField.collection;
+  const collection = fieldModel.context.collectionField.collection;
   const dataSource = collection.dataSource;
-  const name = fieldModel.collectionField.name;
+  const name = fieldModel.context.collectionField.name;
   const nameValue = useMemo(() => {
     const dataSourcePrefix = `${t(dataSource.displayName || dataSource.key)} > `;
     const collectionPrefix = collection ? `${t(collection.title) || collection.name || collection.tableName} > ` : '';
@@ -74,12 +87,17 @@ const LargeFieldEdit = observer(({ model, params: { fieldPath, index }, defaultV
 
   const FieldModelRendererCom = (props) => {
     const { model, onChange, ...rest } = props;
-    const handelChange = (val) => {
-      others.onChange(val);
-      onChange(val);
-    };
 
-    return <FieldModelRenderer model={model} {...rest} onChange={handelChange} />;
+    const handleChange = useMemo(
+      () =>
+        debounce((val) => {
+          if (props.onChange) props.onChange(val);
+          if (onChange) onChange(val);
+        }, 200),
+      [props.onChange, onChange],
+    );
+
+    return <FieldModelRenderer model={model} {...rest} onChange={handleChange} />;
   };
   const handleClick = async (e) => {
     if (disabled) {
@@ -114,9 +132,13 @@ const LargeFieldEdit = observer(({ model, params: { fieldPath, index }, defaultV
           ? JSON.stringify(defaultValue, null, 2)
           : defaultValue ?? '';
 
-      return <Input value={inputValue} disabled={disabled} />;
+      return <Input value={inputValue} disabled={disabled} style={{ width: '100%' }} />;
     } else {
-      return <FlowModelRenderer model={fieldModel} uid={fieldModel?.uid} />;
+      return (
+        <Space>
+          <FlowModelRenderer model={fieldModel} uid={fieldModel?.uid} /> <EditOutlined className="edit-icon" />
+        </Space>
+      );
     }
   }, [collectionField.interface, defaultValue, fieldModel]);
   return (
@@ -124,7 +146,7 @@ const LargeFieldEdit = observer(({ model, params: { fieldPath, index }, defaultV
       ref={ref}
       onClick={handleClick}
       style={{
-        display: 'inline-flex',
+        display: 'flex',
         alignItems: 'center',
         whiteSpace: 'nowrap',
         minHeight: 25,
@@ -135,7 +157,7 @@ const LargeFieldEdit = observer(({ model, params: { fieldPath, index }, defaultV
       }}
     >
       <span
-        style={{ pointerEvents: 'none' }} // 不拦截点击
+        style={{ pointerEvents: 'none', display: 'block', width: '100%' }} // 不拦截点击
       >
         {content}
       </span>
@@ -149,6 +171,174 @@ const handleModelName = (modelName) => {
   }
   return modelName;
 };
+
+const MemoFieldRenderer = React.memo(FieldModelRenderer, (prev, next) => {
+  return prev.value === next.value && prev.model === next.model;
+});
+
+const FieldModelRendererOptimize = React.memo((props: any) => {
+  const { model, onChange, value, ...rest } = props;
+  const pendingValueRef = React.useRef<any>(props?.value);
+
+  useEffect(() => {
+    pendingValueRef.current = value;
+  }, [value]);
+
+  const handleChange = React.useCallback(
+    (value: any) => {
+      pendingValueRef.current = value;
+    },
+    [model],
+  );
+
+  const handleCommit = React.useCallback(() => {
+    onChange?.(pendingValueRef.current);
+  }, [onChange]);
+  return (
+    <div onBlur={handleCommit}>
+      <MemoFieldRenderer
+        {...rest}
+        value={value}
+        model={model}
+        onChange={handleChange}
+        onChangeComplete={() => {
+          onChange?.(pendingValueRef.current);
+        }}
+      />
+    </div>
+  );
+});
+
+interface CellProps {
+  value: any;
+  record: any;
+  rowIdx: number;
+  id: string | number;
+  parent: any;
+  parentFieldIndex?: string[];
+  parentItem?: any;
+  rowFork?: any;
+  memoKey?: string;
+  width?: number;
+}
+
+const MemoCell: React.FC<CellProps> = React.memo(
+  ({ value, record, rowIdx, id, parent, parentFieldIndex, rowFork, width }) => {
+    const isNew = record?.__is_new__;
+    return (
+      <div
+        style={{
+          width,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+        title={value}
+        className={css`
+          .ant-form-item-explain-error {
+            white-space: break-spaces;
+          }
+          .edit-icon {
+            position: absolute;
+            display: none;
+            color: #1890ff;
+            margin-left: 8px;
+            cursor: pointer;
+            z-index: 100;
+            top: 50%;
+            right: 8px;
+            transform: translateY(-50%);
+          }
+          &:hover {
+            background: rgba(24, 144, 255, 0.1) !important;
+          }
+          &:hover .edit-icon {
+            display: inline-flex;
+          }
+        `}
+      >
+        <SubTableRowRuleBinder model={rowFork} />
+        {parent.mapSubModels('field', (action: FieldModel) => {
+          const fieldPath = action.context.fieldPath.split('.');
+          const namePath = fieldPath.pop();
+
+          const fork: any = action.createFork({}, `${id}`);
+          fork.context.defineProperty('currentObject', { get: () => record });
+          if (rowFork) {
+            fork.context.defineProperty('item', {
+              get: () => rowFork.context.item,
+              cache: false,
+            });
+            fork.context.defineProperty('fieldIndex', {
+              get: () => rowFork.context.fieldIndex,
+              cache: false,
+            });
+          } else {
+            fork.context.defineProperty('item', {
+              get: () => {
+                const list = (parent as any)?.parent?.props?.value;
+                const length = Array.isArray(list) ? list.length : undefined;
+                return {
+                  index: rowIdx,
+                  length,
+                  __is_new__: isNew,
+                  __is_stored__: record?.__is_stored__,
+                  value: record,
+                };
+              },
+              cache: false,
+            });
+          }
+
+          if (parent.props.readPretty) {
+            fork.setProps({ value });
+            return <React.Fragment key={id}>{fork.render()}</React.Fragment>;
+          }
+
+          if (parent.props.aclViewDisabled && !isNew) return null;
+
+          return (
+            <FormItem
+              {...parent.props}
+              key={id}
+              name={buildDynamicNamePath([...fieldPath, rowIdx, namePath], parentFieldIndex)}
+              style={{ marginBottom: 0 }}
+              showLabel={false}
+              disabled={
+                parent.props.disabled ||
+                (!isNew && parent.props.aclDisabled) ||
+                (isNew && parent.props.aclCreateDisabled)
+              }
+            >
+              {fork.constructor.isLargeField ? (
+                <LargeFieldEdit
+                  model={fork}
+                  params={{
+                    fieldPath: [(parent as any).context.fieldPath, rowIdx, namePath],
+                    index: id,
+                  }}
+                  defaultValue={value}
+                  disabled={
+                    parent.props.disabled ||
+                    (!isNew && parent.props.aclDisabled) ||
+                    (isNew && parent.props.aclCreateDisabled)
+                  }
+                />
+              ) : (
+                <FieldModelRendererOptimize model={fork} id={[(parent as any).context.fieldPath, rowIdx]} />
+              )}
+            </FormItem>
+          );
+        })}
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.value === next.value && prev.id === next.id && prev.memoKey === next.memoKey && prev.width === next.width
+    );
+  },
+);
 
 export interface SubTableColumnModelStructure {
   parent: SubTableFieldModel;
@@ -299,7 +489,7 @@ export class SubTableColumnModel<
       // render: this.renderItem(),
       hidden: this.hidden && !this.context.flowSettingsEnabled,
       render: (value) => {
-        const { record, rowIndex: index } = value;
+        const { record, rowIndex: index } = value || {};
         return (
           <FlowModelProvider model={this}>
             <ErrorBoundary FallbackComponent={FlowErrorFallback}>
@@ -331,69 +521,65 @@ export class SubTableColumnModel<
   }
   renderItem(): any {
     return (props) => {
-      const { value, id, rowIdx, record } = props;
+      const { value, id, rowIdx, record, parentFieldIndex, parentItem } = props || {};
+      // 子表格列模型本身没有行级 fieldIndex，上下文中无法把 `roles.name` 解析成 `roles[0].name`，
+      // 导致“默认值/赋值规则”在对多关系字段下无法生效。
+      // 这里为每一行创建一个 column fork，并注入 fieldIndex，让规则引擎能够按行解析与写入。
+      const baseFieldIndex = parentFieldIndex ?? (this.parent as any)?.context?.fieldIndex ?? this.context?.fieldIndex;
+      const baseArr = Array.isArray(baseFieldIndex) ? baseFieldIndex : [];
+      const baseIndexKey = baseArr.length ? baseArr.join('|') : 'root';
+      const rowForkKey = `row:${baseIndexKey}:${String(rowIdx)}`;
+      const rowFork: any = (() => {
+        const fork = this.createFork({}, rowForkKey);
+        const associationFieldPath =
+          (this.parent as any)?.fieldPath ??
+          (this.parent as any)?.context?.fieldPath ??
+          (this.parent as any)?.props?.name;
+        const associationKey =
+          (this.parent as any)?.context?.collectionField?.name ||
+          String(associationFieldPath || '')
+            .split('.')
+            .filter(Boolean)
+            .pop();
+        const rowIndex = Number(rowIdx);
+        if (associationKey && Number.isFinite(rowIndex)) {
+          fork.context.defineProperty('fieldIndex', {
+            value: [...baseArr, `${associationKey}:${rowIndex}`],
+          });
+        }
+        fork.context.defineProperty('item', {
+          get: () => {
+            const parentItemCtx = (parentItem ?? this.context?.item) as any;
+            const isNew = record?.__is_new__;
+            const isStored = record?.__is_stored__;
+            const list = (this.parent as any)?.props?.value;
+            const length = Array.isArray(list) ? list.length : undefined;
+            return {
+              index: Number.isFinite(rowIndex) ? rowIndex : undefined,
+              length,
+              __is_new__: isNew,
+              __is_stored__: isStored,
+              value: record,
+              parentItem: parentItemCtx,
+            };
+          },
+          cache: false,
+        });
+        return fork;
+      })();
       return (
-        <div
-          style={{
-            width: this.props.width,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-          title={value}
-          className={css`
-            .ant-form-item-explain-error {
-              white-space: break-spaces;
-            }
-          `}
-        >
-          {this.mapSubModels('field', (action: FieldModel) => {
-            const fieldPath = action.context.fieldPath.split('.');
-            const namePath = fieldPath.pop();
-
-            const fork: any = action.createFork({}, `${id}`);
-            if (this.props.readPretty) {
-              fork.setProps({
-                value: value,
-              });
-              return <React.Fragment key={id}>{fork.render()}</React.Fragment>;
-            } else {
-              return this.props.aclViewDisabled && !record.isNew ? null : (
-                <FormItem
-                  {...this.props}
-                  key={id}
-                  name={[...fieldPath, rowIdx, namePath]}
-                  style={{ marginBottom: 0 }}
-                  showLabel={false}
-                  // initialValue={value}
-                  disabled={
-                    this.props.disabled ||
-                    (!record.isNew && this.props.aclDisabled) ||
-                    (record.isNew && this.props.aclCreateDisabled)
-                  }
-                >
-                  {fork.constructor.isLargeField ? (
-                    <LargeFieldEdit
-                      model={fork}
-                      params={{
-                        fieldPath: [(this.parent as FieldModel).context.fieldPath, rowIdx, namePath],
-                        index: id,
-                      }}
-                      defaultValue={value}
-                      disabled={
-                        this.props.disabled ||
-                        (!record.isNew && this.props.aclDisabled) ||
-                        (record.isNew && this.props.aclCreateDisabled)
-                      }
-                    />
-                  ) : (
-                    <FieldModelRenderer model={fork} id={[(this.parent as FieldModel).context.fieldPath, rowIdx]} />
-                  )}
-                </FormItem>
-              );
-            }
-          })}
-        </div>
+        <MemoCell
+          value={value}
+          record={record}
+          rowIdx={rowIdx}
+          id={id}
+          parent={this}
+          parentFieldIndex={baseArr}
+          parentItem={parentItem}
+          rowFork={rowFork}
+          memoKey={rowForkKey}
+          width={this.props.width}
+        />
       );
     };
   }
@@ -423,9 +609,8 @@ SubTableColumnModel.registerFlow({
         ctx.model.setProps('title', collectionField.title);
         ctx.model.setProps('dataIndex', collectionField.name);
         const currentBlockModel = ctx.model.context.blockModel;
-        if (currentBlockModel instanceof EditFormModel) {
-          currentBlockModel.addAppends(ctx.model.fieldPath);
-        }
+        // 避免强依赖 EditFormModel（减少循环依赖风险）：仅在存在该能力时调用
+        currentBlockModel?.addAppends?.(ctx.model.fieldPath);
       },
     },
     title: {
@@ -443,7 +628,7 @@ SubTableColumnModel.registerFlow({
               const originTitle = model.collectionField?.title;
               field.decoratorProps = {
                 ...field.decoratorProps,
-                extra: model.context.t('Original field title: ') + (model.context.t(originTitle) ?? ''),
+                extra: model.context.t('Original field title: ') + originTitle,
               };
             },
           },
@@ -455,8 +640,8 @@ SubTableColumnModel.registerFlow({
         };
       },
       handler(ctx, params) {
-        const title = ctx.t(params.title || ctx.model.collectionField?.title);
-        ctx.model.setProps('title', title || ctx.fieldPath.split('.').pop());
+        const options = { ns: 'lm-flow-engine', compareWith: ctx.model.collectionField?.title };
+        ctx.model.setProps({ title: ctx.t(params.title, options) || ctx.fieldPath.split('.').pop() });
       },
     },
     tooltip: {
@@ -468,16 +653,47 @@ SubTableColumnModel.registerFlow({
         },
       },
       handler(ctx, params) {
-        ctx.model.setProps('tooltip', params.tooltip);
+        ctx.model.setProps('tooltip', ctx.t(params.tooltip, { ns: 'lm-flow-engine' }));
       },
     },
     width: {
       title: tExpr('Column width'),
-      uiSchema: {
-        width: {
-          'x-component': 'NumberPicker',
-          'x-decorator': 'FormItem',
-        },
+      uiMode(ctx) {
+        const columnWidth = ctx.model.props.width;
+        return {
+          type: 'select',
+          key: 'width',
+          props: {
+            options: [
+              { label: 50, value: 50 },
+              { label: 100, value: 100 },
+              { label: 150, value: 150 },
+              { label: 200, value: 200 },
+              { label: 250, value: 250 },
+              { label: 300, value: 300 },
+              { label: 350, value: 350 },
+              { label: 400, value: 400 },
+              { label: 450, value: 450 },
+              { label: 500, value: 500 },
+            ],
+            dropdownRender: (menu, setOpen, handleChange) => {
+              return (
+                <>
+                  {menu}
+                  <Divider style={{ margin: '4px 0' }} />
+                  <CustomWidth
+                    setOpen={setOpen}
+                    handleChange={handleChange}
+                    t={ctx.t}
+                    defaultValue={
+                      [50, 100, 150, 200, 250, 300, 350, 400, 450, 500].includes(columnWidth) ? null : columnWidth
+                    }
+                  />
+                </>
+              );
+            },
+          },
+        };
       },
       defaultParams: {
         width: 200,

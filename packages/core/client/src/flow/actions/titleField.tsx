@@ -7,7 +7,7 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { defineAction, DisplayItemModel, tExpr, FlowModelContext } from '@nocobase/flow-engine';
+import { defineAction, DisplayItemModel, FlowModelContext, tExpr } from '@nocobase/flow-engine';
 import { isTitleField } from '../../data-source';
 
 export const titleField = defineAction({
@@ -21,7 +21,7 @@ export const titleField = defineAction({
       .filter((field) => isTitleField(dataSourceManager, field.options))
       .map((field) => ({
         value: field.name,
-        label: ctx.t(field.options.uiSchema?.title) || field.name,
+        label: field?.title,
       }));
     return {
       type: 'select',
@@ -38,14 +38,20 @@ export const titleField = defineAction({
     };
   },
   hideInSettings: async (ctx: FlowModelContext) => {
-    return !ctx.collectionField || !ctx.collectionField.isAssociationField();
+    return (
+      !ctx.collectionField ||
+      !ctx.collectionField.isAssociationField() ||
+      (ctx.model.subModels.field as any)?.disableTitleField
+    );
   },
   beforeParamsSave: async (ctx: any, params, previousParams) => {
     const target = ctx.model.collectionField.target;
     const targetCollection = ctx.model.collectionField.targetCollection;
     if (params.label !== previousParams.label) {
-      const fieldUid = ctx.model.subModels['field']['uid'];
-      await ctx.engine.destroyModel(fieldUid);
+      const fieldUid = ctx.model.subModels['field']?.['uid'];
+      if (fieldUid) {
+        await ctx.engine.destroyModel(fieldUid);
+      }
       const targetCollectionField = targetCollection.getField(params.label);
       const binding = DisplayItemModel.getDefaultBindingByField(ctx, targetCollectionField);
       const use = binding.modelName;

@@ -7,17 +7,17 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import {
   RunJSContextRegistry,
-  getRunJSDocFor,
   createJSRunnerWithVersion,
-  getRunJSScenesForModel,
+  getRunJSDocFor,
   getRunJSScenesForContext,
+  getRunJSScenesForModel,
 } from '..';
-import { setupRunJSContexts } from '../runjs-context/setup';
 import { FlowContext } from '../flowContext';
 import { JSRunner } from '../JSRunner';
+import { setupRunJSContexts } from '../runjs-context/setup';
 
 describe('flowRunJSContext registry and doc', () => {
   beforeAll(async () => {
@@ -27,6 +27,10 @@ describe('flowRunJSContext registry and doc', () => {
   describe('setupRunJSContexts', () => {
     it('should register v1 mapping', () => {
       expect(RunJSContextRegistry['resolve']('v1' as any, '*')).toBeTruthy();
+    });
+
+    it('should register v2 mapping', () => {
+      expect(RunJSContextRegistry['resolve']('v2' as any, '*')).toBeTruthy();
     });
 
     it('should register all context types', () => {
@@ -44,12 +48,20 @@ describe('flowRunJSContext registry and doc', () => {
         const ctor = RunJSContextRegistry['resolve']('v1' as any, modelClass);
         expect(ctor).toBeTruthy();
       });
+
+      contextTypes.forEach((modelClass) => {
+        const ctor = RunJSContextRegistry['resolve']('v2' as any, modelClass);
+        expect(ctor).toBeTruthy();
+      });
     });
 
     it('should expose scene metadata for contexts', () => {
       expect(getRunJSScenesForModel('JSBlockModel', 'v1')).toEqual(['block']);
       expect(getRunJSScenesForModel('JSFieldModel', 'v1')).toEqual(['detail']);
+      expect(getRunJSScenesForModel('JSBlockModel', 'v2')).toEqual(['block']);
+      expect(getRunJSScenesForModel('JSFieldModel', 'v2')).toEqual(['detail']);
       expect(getRunJSScenesForModel('UnknownModel', 'v1')).toEqual([]);
+      expect(getRunJSScenesForModel('UnknownModel', 'v2')).toEqual([]);
     });
 
     it('should only execute once (idempotent)', async () => {
@@ -80,7 +92,10 @@ describe('flowRunJSContext registry and doc', () => {
       (ctx as any).defineProperty('model', { value: { constructor: { name: 'JSFieldModel' } } });
       (ctx as any).defineProperty('api', { value: { auth: { locale: 'zh-CN' } } });
       const doc = getRunJSDocFor(ctx as any, { version: 'v1' });
-      expect(doc?.properties?.message).toMatch(/Ant Design 全局消息/);
+      const message = doc?.properties?.message;
+      const messageText =
+        typeof message === 'string' ? message : (message as any)?.description ?? (message as any)?.detail ?? '';
+      expect(String(messageText)).toMatch(/Ant Design 全局消息/);
     });
 
     it('should fallback to English when locale is not found', () => {
@@ -172,6 +187,7 @@ describe('flowRunJSContext registry and doc', () => {
       const ctx = new FlowContext();
       ctx.defineProperty('model', { value: { constructor: { name: 'JSColumnModel' } } });
       expect(getRunJSScenesForContext(ctx as any, { version: 'v1' })).toEqual(['table']);
+      expect(getRunJSScenesForContext(ctx as any, { version: 'v2' })).toEqual(['table']);
     });
 
     it('JSBlockModel context should have element property in doc', () => {
@@ -208,10 +224,10 @@ describe('flowRunJSContext registry and doc', () => {
       expect(doc?.properties?.message).toBeTruthy();
     });
 
-    it('should have api property in base context', () => {
+    it('should have request method in base context', () => {
       const ctx: any = { model: { constructor: { name: '*' } } };
       const doc = getRunJSDocFor(ctx as any, { version: 'v1' });
-      expect(doc?.properties?.api).toBeTruthy();
+      expect(doc?.methods?.request).toBeTruthy();
     });
 
     it('should have t method in base context', () => {

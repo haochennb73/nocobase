@@ -17,6 +17,7 @@ import {
   useFlowEngine,
 } from '@nocobase/flow-engine';
 import React from 'react';
+import { uid } from '@formily/shared';
 import { FormItemModel } from '../../../blocks/form';
 import { AssociationFieldModel } from '../AssociationFieldModel';
 import { RecordPickerContent } from '../RecordPickerFieldModel';
@@ -101,8 +102,17 @@ export class SubTableFieldModel extends AssociationFieldModel {
       },
     };
     const isConfigMode = !!this.context.flowSettingsEnabled;
-
-    return <SubTableField {...this.props} columns={columns} components={components} isConfigMode={isConfigMode} />;
+    return (
+      <SubTableField
+        {...this.props}
+        columns={columns}
+        components={components}
+        isConfigMode={isConfigMode}
+        parentFieldIndex={this.context.fieldIndex}
+        parentItem={this.context.item}
+        filterTargetKey={this.collection.filterTargetKey}
+      />
+    );
   }
   onInit(options: any): void {
     super.onInit(options);
@@ -213,7 +223,7 @@ SubTableFieldModel.registerFlow({
       title: tExpr('Enable select action'),
       uiMode: { type: 'switch', key: 'allowSelectExistingRecord' },
       defaultParams: {
-        allowSelectExistingRecord: false,
+        allowSelectExistingRecord: true,
       },
       handler(ctx, params) {
         ctx.model.setProps({
@@ -233,7 +243,7 @@ SubTableFieldModel.registerFlow({
   },
   steps: {
     openView: {
-      title: tExpr('Edit select record popup'),
+      title: tExpr('Edit popup (Select record)'),
       hideInSettings(ctx) {
         const allowSelectExistingRecord = ctx.model.getStepParams?.(
           'subTableColumnSettings',
@@ -312,7 +322,7 @@ SubTableFieldModel.registerFlow({
                   ...selectedRows.map((v) => {
                     return {
                       ...v,
-                      isStored: true,
+                      __is_stored__: true,
                     };
                   }),
                 ];
@@ -344,12 +354,28 @@ SubTableFieldModel.registerFlow({
   },
 });
 
+// 分页切换后重置page
+SubTableFieldModel.registerFlow({
+  key: 'paginationChange',
+  on: 'paginationChange',
+  steps: {
+    pageRefresh: {
+      handler(ctx, params) {
+        ctx.model.setProps({
+          resetPage: uid(),
+        });
+      },
+    },
+  },
+});
+
 SubTableFieldModel.define({
-  label: tExpr('Sub-table'),
+  label: tExpr('Subtable (Inline editing)'),
 });
 export { SubTableColumnModel };
 
 FormItemModel.bindModelToInterface('SubTableFieldModel', ['m2m', 'o2m', 'mbm'], {
+  order: 200,
   when: (ctx, field) => {
     if (field.targetCollection) {
       return field.targetCollection.template !== 'file';

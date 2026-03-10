@@ -353,7 +353,7 @@ describe('FlowModel', () => {
         }).toThrow('FlowModel must be initialized with a FlowEngine instance.');
       });
 
-      test('should handle FlowExitException correctly', async () => {
+      test('should handle ctx.exit() as FlowExitAllException in applyFlow', async () => {
         const exitFlow: FlowDefinitionOptions = {
           key: 'exitFlow',
           steps: {
@@ -374,14 +374,14 @@ describe('FlowModel', () => {
 
         const result = await model.applyFlow('exitFlow');
 
-        expect(result).toEqual({});
+        expect(result).toBeInstanceOf(FlowExitAllException);
         expect(exitFlow.steps.step2.handler).not.toHaveBeenCalled();
         expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('[FlowModel]'));
 
         consoleSpy.mockRestore();
       });
 
-      test('should handle FlowExitException correctly', async () => {
+      test('should handle ctx.exit() as FlowExitAllException in beforeRender dispatch', async () => {
         const exitFlow: FlowDefinitionOptions = {
           key: 'exitFlow',
           steps: {
@@ -413,7 +413,7 @@ describe('FlowModel', () => {
         await model.dispatchEvent('beforeRender');
 
         expect(exitFlow.steps.step2.handler).not.toHaveBeenCalled();
-        expect(exitFlow2.steps.step2.handler).toHaveBeenCalled();
+        expect(exitFlow2.steps.step2.handler).not.toHaveBeenCalled();
         expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('[FlowEngine]'));
 
         loggerSpy.mockRestore();
@@ -1556,6 +1556,22 @@ describe('FlowModel', () => {
 
         expect(fork1).toBe(fork2);
         expect(model.forks.size).toBe(1);
+      });
+
+      test('should recreate cached fork after dispose to avoid state leakage', () => {
+        const fork1 = model.createFork({ foo: 'bar' }, 'cacheKey');
+        fork1.hidden = true;
+        fork1.setProps({ disabled: true });
+
+        fork1.dispose();
+
+        expect(model.getFork('cacheKey')).toBeUndefined();
+
+        const fork2 = model.createFork({}, 'cacheKey');
+
+        expect(fork2).not.toBe(fork1);
+        expect(fork2.hidden).toBe(false);
+        expect(fork2.localProps).toEqual({});
       });
 
       test('should create different instances for different keys', () => {

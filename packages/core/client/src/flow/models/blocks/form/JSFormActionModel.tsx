@@ -29,6 +29,7 @@ JSFormActionModel.registerFlow({
   steps: {
     runJs: {
       title: tExpr('Write JavaScript'),
+      useRawParams: true,
       uiSchema: {
         code: {
           type: 'string',
@@ -56,7 +57,7 @@ JSFormActionModel.registerFlow({
       },
       defaultParams(ctx) {
         return {
-          version: 'v1',
+          version: 'v2',
           code: `
 const values = ctx.form?.getFieldsValue?.() || {};
 ctx.message.success('Current form values: ' + JSON.stringify(values));

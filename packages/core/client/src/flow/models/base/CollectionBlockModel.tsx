@@ -18,8 +18,10 @@ import {
   MultiRecordResource,
   SingleRecordResource,
 } from '@nocobase/flow-engine';
+import type { FlowEngine } from '@nocobase/flow-engine';
 import _ from 'lodash';
 import { createDefaultCollectionBlockTitle } from '../../utils/blockUtils';
+import { areCapabilitiesSupported, getBlockCapabilityNamesFromModelClass } from '../../utils/actionCapability';
 import { FilterManager } from '../blocks/filter-manager/FilterManager';
 import { DataBlockModel } from './DataBlockModel';
 
@@ -35,20 +37,87 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
   isManualRefresh = false;
   collectionRequired = true;
   private previousBeforeRenderHash; // qs 变化后为了防止区块依赖qs, 因此重跑beforeRender, task-1357
+  private lastSeenDirtyVersion: number | null = null;
+  private dirtyRefreshing = false;
 
   protected onMount() {
     super.onMount();
     this.previousBeforeRenderHash = this.context.location.search;
   }
 
-  onActive() {
+  private getDirtyTrackingVersion(
+    engine: FlowEngine,
+    dataSourceKey: string,
+    resource: BaseRecordResource | undefined,
+    params: ResourceSettingsInitParams,
+  ): number {
+    const names = new Set<string>();
+    const primary = resource?.getResourceName?.() || params.associationName || params.collectionName;
+    if (primary) names.add(String(primary));
+    if (params.associationName) names.add(String(params.associationName));
+    if (params.collectionName) names.add(String(params.collectionName));
+
+    let version = 0;
+    for (const name of names) {
+      version += engine.getDataSourceDirtyVersion(dataSourceKey, name);
+    }
+    return version;
+  }
+
+  onActive(forceRefresh = false) {
     if (!this.hidden && this.previousBeforeRenderHash !== this.context.location.search) {
       this.rerender();
+      if (!forceRefresh) {
+        return;
+      }
+    }
+
+    if (this.hidden) return;
+
+    const resource = this.context.resource as BaseRecordResource | undefined;
+    if (!resource) return;
+
+    const params = this.getResourceSettingsInitParams();
+    const dataSourceKey = resource.getDataSourceKey() || params.dataSourceKey || 'main';
+    const engine = this.context.engine as FlowEngine;
+    const currentVersion = this.getDirtyTrackingVersion(engine, dataSourceKey, resource, params);
+
+    if (forceRefresh) {
+      if (this.dirtyRefreshing) return;
+      this.dirtyRefreshing = true;
+      void resource
+        .refresh()
+        .then(() => {
+          this.lastSeenDirtyVersion = this.getDirtyTrackingVersion(engine, dataSourceKey, resource, params);
+        })
+        .catch(() => {
+          // keep lastSeenDirtyVersion unchanged so next activate can retry
+        })
+        .finally(() => {
+          this.dirtyRefreshing = false;
+        });
       return;
     }
-    if (!this.hidden) {
-      this.resource?.refresh();
-    }
+
+    if (this.isManualRefresh) return;
+
+    const shouldRefresh = this.lastSeenDirtyVersion === null || currentVersion !== this.lastSeenDirtyVersion;
+    if (!shouldRefresh) return;
+
+    // Avoid firing multiple refreshes during rapid activate toggles.
+    if (this.dirtyRefreshing) return;
+    this.dirtyRefreshing = true;
+    void resource
+      .refresh()
+      .then(() => {
+        this.lastSeenDirtyVersion = this.getDirtyTrackingVersion(engine, dataSourceKey, resource, params);
+      })
+      .catch(() => {
+        // keep lastSeenDirtyVersion unchanged so next activate can retry
+      })
+      .finally(() => {
+        this.dirtyRefreshing = false;
+      });
   }
 
   /**
@@ -59,6 +128,20 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
       return true;
     }
     return false;
+  }
+
+  /**
+   * 判断当前区块模型在 collection 选择菜单中是否应该展示指定数据表。
+   *
+   * @param collection 数据表
+   * @returns 是否显示
+   */
+  static isCollectionAvailable(collection: Collection | undefined) {
+    if (!collection) {
+      return false;
+    }
+    const capabilityNames = getBlockCapabilityNamesFromModelClass(this as any);
+    return areCapabilitiesSupported(collection, capabilityNames);
   }
 
   /**
@@ -78,7 +161,7 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
     const genKey = (key) => {
       return this.name + key;
     };
-    const { dataSourceKey, collectionName, associationName } = ctx.view.inputArgs;
+    const { dataSourceKey, collectionName, associationName, filterByTk } = ctx.view.inputArgs;
     const dataSources = ctx.dataSourceManager
       .getDataSources()
       .map((dataSource) => {
@@ -95,6 +178,9 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
               .getCollections()
               .map((collection) => {
                 if (!this.filterCollection(collection)) {
+                  return null;
+                }
+                if (!this.isCollectionAvailable(collection)) {
                   return null;
                 }
                 const initOptions = {
@@ -138,8 +224,10 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
         initOptions['associationName'] = associationName;
         initOptions['sourceId'] = '{{ctx.view.inputArgs.sourceId}}';
       }
-      return [
-        {
+      const currentCollection = ctx.dataSourceManager.getCollection(dataSourceKey, collectionName);
+      const items: any[] = [];
+      if (this.isCollectionAvailable(currentCollection)) {
+        items.push({
           key: genKey('current-collection'),
           label: 'Current collection',
           useModel: this.name,
@@ -150,13 +238,14 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
               },
             },
           }),
-        },
-        {
-          key: genKey('others-collections'),
-          label: 'Other collections',
-          children: children(ctx),
-        },
-      ];
+        });
+      }
+      items.push({
+        key: genKey('others-collections'),
+        label: 'Other collections',
+        children: children(ctx),
+      });
+      return items;
     }
     if (this._isScene('new')) {
       const initOptions = {
@@ -168,8 +257,10 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
         initOptions['associationName'] = associationName;
         initOptions['sourceId'] = '{{ctx.view.inputArgs.sourceId}}';
       }
-      return [
-        {
+      const items: any[] = [];
+      const currentCollection = ctx.dataSourceManager.getCollection(dataSourceKey, collectionName);
+      if (this.isCollectionAvailable(currentCollection)) {
+        items.push({
           key: genKey('current-collection'),
           label: 'Current collection',
           useModel: this.name,
@@ -180,8 +271,13 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
               },
             },
           }),
-        },
-        {
+        });
+      }
+
+      // 新建记录的弹窗（如 Add new）没有 record 锚点（filterByTk），此时不应允许添加「关联记录」区块。
+      // 仅当弹窗携带 filterByTk（例如 View/Details 等记录态弹窗）时，才开放关联记录入口。
+      if (typeof filterByTk !== 'undefined' && filterByTk !== null) {
+        items.push({
           key: genKey('associated'),
           label: 'Associated records',
           children: () => {
@@ -192,7 +288,13 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
                 if (!field.targetCollection) {
                   return null;
                 }
+                if (field.type === 'belongsToArray') {
+                  return null;
+                }
                 if (!this.filterCollection(field.targetCollection)) {
+                  return null;
+                }
+                if (!this.isCollectionAvailable(field.targetCollection)) {
                   return null;
                 }
                 let sourceId = `{{ctx.popup.record.${field.sourceKey || field.collection.filterTargetKey}}}`;
@@ -220,13 +322,16 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
               })
               .filter(Boolean);
           },
-        },
-        {
-          key: genKey('others-collections'),
-          label: 'Other collections',
-          children: children(ctx),
-        },
-      ];
+        });
+      }
+
+      items.push({
+        key: genKey('others-collections'),
+        label: 'Other collections',
+        children: children(ctx),
+      });
+
+      return items;
     }
     const items = [
       {
@@ -240,7 +345,13 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
               if (!field.targetCollection) {
                 return null;
               }
+              if (field.type === 'belongsToArray') {
+                return null;
+              }
               if (!this.filterCollection(field.targetCollection)) {
+                return null;
+              }
+              if (!this.isCollectionAvailable(field.targetCollection)) {
                 return null;
               }
               let sourceId = `{{ctx.popup.record.${field.sourceKey || field.collection.filterTargetKey}}}`;
@@ -277,7 +388,11 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
     ];
     if (this._isScene('one')) {
       const currentCollection = ctx.dataSourceManager.getCollection(dataSourceKey, collectionName);
-      if (!currentCollection || !this.filterCollection(currentCollection)) {
+      if (
+        !currentCollection ||
+        !this.filterCollection(currentCollection) ||
+        !this.isCollectionAvailable(currentCollection)
+      ) {
         return items;
       }
       const initOptions = {
@@ -386,7 +501,17 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
         // resource.setAPIClient(this.context.api);
         resource.setDataSourceKey(params.dataSourceKey);
         resource.setResourceName(params.associationName || params.collectionName);
+
+        const syncDirtyVersion = () => {
+          const engine = this.context.engine as FlowEngine | undefined;
+          if (!engine?.getDataSourceDirtyVersion) return;
+          const dataSourceKey = resource.getDataSourceKey?.() || params.dataSourceKey || 'main';
+          this.lastSeenDirtyVersion = this.getDirtyTrackingVersion(engine, dataSourceKey, resource, params);
+        };
+
+        syncDirtyVersion();
         resource.on('refresh', () => {
+          syncDirtyVersion();
           this.invalidateFlowCache('beforeRender');
         });
         return resource;
@@ -460,7 +585,10 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
       if (collectionField && collectionField.isAssociationField()) {
         (this.resource as BaseRecordResource).addAppends(fieldPath);
         if (collectionField.targetCollection?.template === 'tree') {
-          (this.resource as BaseRecordResource).addAppends(`${fieldPath}.parent` + '(recursively=true)');
+          const result = fieldPath.includes('.') ? fieldPath.slice(fieldPath.lastIndexOf('.') + 1) : fieldPath;
+          if (collectionField.name === result) {
+            (this.resource as BaseRecordResource).addAppends(`${fieldPath}.parent` + '(recursively=true)');
+          }
         }
         if (refresh) {
           this.resource.refresh();
@@ -532,16 +660,42 @@ CollectionBlockModel.registerFlow({
   steps: {
     refresh: {
       async handler(ctx) {
+        const blockModel = ctx.model as CollectionBlockModel;
         const filterManager: FilterManager = ctx.model.context.filterManager;
         if (filterManager) {
           filterManager.bindToTarget(ctx.model.uid);
         }
+
+        // 检查数据加载模式
+        const loadingMode = blockModel.getDataLoadingMode();
+        const resource = blockModel.resource;
+        const isMultiResource = resource instanceof MultiRecordResource;
+
+        if (isMultiResource && loadingMode === 'manual' && !blockModel.hasActiveFilters()) {
+          // manual 模式且无活跃筛选时，清空数据且不加载
+          resource.setData([]);
+          resource.setMeta({ count: 0, hasNext: false, page: 1 });
+          resource.loading = false;
+          return;
+        }
+
         if (ctx.model.isManualRefresh) {
           ctx.model.resource.loading = false;
         } else {
           await ctx.model.resource.refresh();
         }
       },
+    },
+  },
+});
+
+CollectionBlockModel.registerFlow({
+  key: 'dataLoadingModeSettings',
+  sort: 800,
+  title: tExpr('Set data loading mode'),
+  steps: {
+    dataLoadingMode: {
+      use: 'dataLoadingMode',
     },
   },
 });

@@ -7,7 +7,7 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { createSafeDocument, createSafeWindow, createSafeNavigator, tExpr, compileRunJs } from '@nocobase/flow-engine';
+import { createSafeDocument, createSafeWindow, createSafeNavigator, tExpr } from '@nocobase/flow-engine';
 import type { ButtonProps } from 'antd/es/button';
 import { CodeEditor } from '../../components/code-editor';
 import { ActionSceneEnum, RecordActionModel } from '../base';
@@ -38,6 +38,7 @@ JSRecordActionModel.registerFlow({
   steps: {
     runJs: {
       title: tExpr('Write JavaScript'),
+      useRawParams: true,
       uiSchema: {
         code: {
           type: 'string',
@@ -65,7 +66,7 @@ JSRecordActionModel.registerFlow({
       },
       defaultParams(ctx) {
         return {
-          version: 'v1',
+          version: 'v2',
           code: `
 if (!ctx.record) {
   ctx.message.error('No record');
@@ -78,9 +79,8 @@ if (!ctx.record) {
       async handler(ctx, params) {
         const { code, version } = resolveRunJsParams(ctx, params);
         const navigator = createSafeNavigator();
-        const compiled = await compileRunJs(code);
         await ctx.runjs(
-          compiled,
+          code,
           { window: createSafeWindow({ navigator }), document: createSafeDocument(), navigator },
           { version },
         );

@@ -79,7 +79,8 @@ function createWithACLMetaMiddleware() {
 
     for (const action of inspectActions) {
       const actionCtx: any = {
-        db,
+        db: ctx.db,
+        database: db,
         get: () => {
           return undefined;
         },
@@ -101,6 +102,7 @@ function createWithACLMetaMiddleware() {
           mergeParams() {},
         },
         state: {
+          ...ctx.state,
           currentRole: ctx.state.currentRole,
           currentRoles: ctx.state.currentRoles,
           currentUser: (() => {

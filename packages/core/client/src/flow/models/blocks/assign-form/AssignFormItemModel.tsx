@@ -17,6 +17,7 @@ import {
   tExpr,
   isVariableExpression,
   parseValueToPath,
+  isRunJSValue,
   EditableItemModel,
   jioToJoiSchema,
 } from '@nocobase/flow-engine';
@@ -26,6 +27,7 @@ import { EditFormModel } from '../form/EditFormModel';
 import { FieldValidation } from '../../../../collection-manager';
 import { customAlphabet as Alphabet } from 'nanoid';
 import { ensureOptionsFromUiSchemaEnumIfAbsent } from '../../../internal/utils/enumOptionsUtils';
+import { RunJSValueEditor } from '../../../components/RunJSValueEditor';
 
 /**
  * 使用 FormItemModel 的“表单项”包装，内部渲染 VariableInput，并将“常量”映射到临时字段模型。
@@ -215,21 +217,35 @@ export class AssignFormItemModel extends FormItemModel {
 
       const NullComponent: React.FC = () => <Input placeholder={'<Null>'} readOnly style={{ width: '100%' }} />;
 
+      const RunJSComponent: React.FC<any> = (inputProps: any) => {
+        return (
+          <RunJSValueEditor
+            t={this.context.t}
+            value={inputProps?.value}
+            onChange={inputProps?.onChange}
+            containerStyle={{ width: '100%' }}
+          />
+        );
+      };
+
       const converters = {
         renderInputComponent: (meta: any) => {
           const firstPath = meta?.paths?.[0];
           if (firstPath === 'constant') return ConstantValueEditor as any;
           if (firstPath === 'null') return NullComponent as any;
+          if (firstPath === 'runjs') return RunJSComponent as any;
           return undefined;
         },
         resolveValueFromPath: (item: any) => {
           const firstPath = item?.paths?.[0];
           if (firstPath === 'constant') return '';
           if (firstPath === 'null') return null;
+          if (firstPath === 'runjs') return { code: '', version: 'v2' };
           return undefined;
         },
         resolvePathFromValue: (currentValue: any) => {
           if (currentValue === null) return ['null'];
+          if (isRunJSValue(currentValue)) return ['runjs'];
           return isVariableExpression(currentValue) ? parseValueToPath(currentValue) : ['constant'];
         },
       } as any;
@@ -247,6 +263,7 @@ export class AssignFormItemModel extends FormItemModel {
             render: ConstantValueEditor,
           },
           { title: tExpr('Null'), name: 'null', type: 'object', paths: ['null'], render: NullComponent },
+          { title: tExpr('RunJS'), name: 'runjs', type: 'object', paths: ['runjs'], render: RunJSComponent },
           ...base,
         ];
       };
@@ -261,18 +278,27 @@ export class AssignFormItemModel extends FormItemModel {
           {...this.props}
           label={labelText}
           name={namePath}
+          initialValue={this.assignValue}
           valuePropName="__assign_value__"
           trigger="__assign_trigger__"
+          validateTrigger="__assign_trigger__"
         >
-          <VariableInput
-            value={this.assignValue}
-            onChange={(v: any) => {
-              this.assignValue = v;
-            }}
-            metaTree={mergedMetaTree}
-            converters={converters}
-            clearValue={''}
-          />
+          {React.createElement((formBindingProps: any) => {
+            const formValue = formBindingProps?.__assign_value__;
+            const mergedValue = typeof formValue === 'undefined' ? this.assignValue : formValue;
+            return (
+              <VariableInput
+                value={mergedValue}
+                onChange={(v: any) => {
+                  this.assignValue = v;
+                  formBindingProps?.__assign_trigger__?.(v);
+                }}
+                metaTree={mergedMetaTree}
+                converters={converters}
+                clearValue={''}
+              />
+            );
+          })}
         </FormItem>
       );
     };
@@ -313,7 +339,7 @@ AssignFormItemModel.registerFlow({
               const originTitle = model.collectionField?.title;
               field.decoratorProps = {
                 ...field.decoratorProps,
-                extra: model.context.t('Original field title: ') + (model.context.t(originTitle) ?? ''),
+                extra: model.context.t('Original field title: ') + originTitle,
               };
             },
           },
@@ -325,7 +351,11 @@ AssignFormItemModel.registerFlow({
         };
       },
       handler(ctx, params) {
-        ctx.model.setProps({ label: params.label });
+        if (params.label && params.label === ctx.model.collectionField?.title) {
+          ctx.model.setProps({ label: params.label });
+        } else {
+          ctx.model.setProps({ label: ctx.t(params.label, { ns: 'lm-flow-engine' }) });
+        }
       },
     },
     init: {
@@ -351,7 +381,7 @@ AssignFormItemModel.registerFlow({
         },
       },
       handler(ctx, params) {
-        ctx.model.setProps({ tooltip: params.tooltip });
+        ctx.model.setProps({ tooltip: ctx.t(params.tooltip, { ns: 'lm-flow-engine' }) });
       },
     },
     description: {
@@ -363,7 +393,9 @@ AssignFormItemModel.registerFlow({
         },
       },
       handler(ctx, params) {
-        ctx.model.setProps({ extra: params.description });
+        ctx.model.setProps({
+          extra: ctx.t(params.description, { ns: 'lm-flow-engine' }),
+        });
       },
     },
     validation: {

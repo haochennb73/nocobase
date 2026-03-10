@@ -39,9 +39,10 @@ describe('useCodeRunner (beforeRender)', () => {
     model.registerFlow('jsSettings', {
       steps: {
         runJs: {
+          useRawParams: true,
           async handler(ctx) {
             const code = ctx?.inputArgs?.preview?.code || '';
-            return ctx.runjs(code);
+            return ctx.runjs(code, undefined, { preprocessTemplates: true });
           },
         },
       },
@@ -58,6 +59,31 @@ describe('useCodeRunner (beforeRender)', () => {
     expect(result.current.running).toBe(false);
   });
 
+  it('captures ctx.logger output into logs panel', async () => {
+    const engine = new FlowEngine();
+    engine.registerModels({ DummyJsAutoModel });
+    const model = engine.createModel<DummyJsAutoModel>({ use: 'DummyJsAutoModel', uid: 'm-logger' });
+    model.registerFlow('jsSettings', {
+      steps: {
+        runJs: {
+          useRawParams: true,
+          async handler(ctx) {
+            const code = ctx?.inputArgs?.preview?.code || '';
+            return ctx.runjs(code, undefined, { preprocessTemplates: true });
+          },
+        },
+      },
+    });
+
+    const { result } = renderHook(() => useCodeRunner(model.context, 'v1'));
+
+    await act(async () => {
+      await result.current.run('ctx.logger.info("hello-logger"); return 1');
+    });
+
+    expect(result.current.logs.some((l) => l.level === 'info' && l.msg.includes('hello-logger'))).toBe(true);
+  });
+
   it('logs error message on failure', async () => {
     const engine = new FlowEngine();
     engine.registerModels({ DummyJsAutoModel });
@@ -65,9 +91,10 @@ describe('useCodeRunner (beforeRender)', () => {
     model.registerFlow('jsSettings', {
       steps: {
         runJs: {
+          useRawParams: true,
           async handler(ctx) {
             const code = ctx?.inputArgs?.preview?.code || '';
-            return ctx.runjs(code);
+            return ctx.runjs(code, undefined, { preprocessTemplates: true });
           },
         },
       },
@@ -119,11 +146,16 @@ describe('useCodeRunner (beforeRender)', () => {
     master.registerFlow('jsSettings', {
       steps: {
         runJs: {
+          useRawParams: true,
           async handler(ctx) {
             const code = ctx?.inputArgs?.preview?.code || '';
             ctx.onRefReady(ctx.ref, async (el) => {
               ctx.defineProperty('element', { get: () => new ElementProxy(el as any) });
-              await ctx.runjs(code, { window: createSafeWindow(), document: createSafeDocument() });
+              await ctx.runjs(
+                code,
+                { window: createSafeWindow(), document: createSafeDocument() },
+                { preprocessTemplates: true },
+              );
             });
           },
         },
@@ -168,16 +200,21 @@ describe('useCodeRunner (beforeRender)', () => {
     model.registerFlow('jsSettings', {
       steps: {
         runJs: {
+          useRawParams: true,
           async handler(ctx) {
             const code = ctx?.inputArgs?.preview?.code || '';
             ctx.onRefReady(ctx.ref, async (el) => {
               ctx.defineProperty('element', { get: () => new ElementProxy(el as any) });
               const navigator = { userAgent: 'test' } as any;
-              await ctx.runjs(code, {
-                window: createSafeWindow({ navigator }),
-                document: createSafeDocument(),
-                navigator,
-              });
+              await ctx.runjs(
+                code,
+                {
+                  window: createSafeWindow({ navigator }),
+                  document: createSafeDocument(),
+                  navigator,
+                },
+                { preprocessTemplates: true },
+              );
             });
           },
         },
@@ -224,7 +261,9 @@ ctx.render(<JsReadonlyField />);
     expect(saved).not.toContain('ctx.React.createElement');
 
     // Should succeed and render antd input into the model container
-    expect(result.current.logs.some((l) => l.msg?.includes('Execution succeeded'))).toBe(true);
+    await waitFor(() => {
+      expect(result.current.logs.some((l) => l.msg?.includes('Execution succeeded'))).toBe(true);
+    });
     await waitFor(() => {
       // Antd input element should be present
       const el = document.querySelector('.ant-input');

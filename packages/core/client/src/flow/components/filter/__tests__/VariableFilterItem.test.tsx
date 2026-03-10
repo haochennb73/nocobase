@@ -19,27 +19,32 @@ import { observable } from '@formily/reactive';
 // Mock VariableInput to a minimal test double (single button)
 vi.mock('@nocobase/flow-engine', async () => {
   const actual = await vi.importActual<any>('@nocobase/flow-engine');
-  const MockVariableInput = ({ onChange }: any) => (
-    <button
-      type="button"
-      data-testid="variable-input"
-      onClick={() =>
-        onChange?.(
-          (globalThis as any).__TEST_PATH__ || 'name',
-          (globalThis as any).__TEST_META__ || {
-            interface: 'input',
-            uiSchema: { 'x-component': 'Input', 'x-component-props': { placeholder: 'Enter value' } },
-            paths: ['collection', 'name'],
-            name: 'name',
-            title: 'Name',
-            type: 'string',
-          },
-        )
-      }
-    >
-      mock-variable-input
-    </button>
-  );
+  const MockVariableInput = (props: any) => {
+    const { onChange } = props;
+    (globalThis as any).__LAST_VARIABLE_INPUT_PROPS__ = props;
+
+    return (
+      <button
+        type="button"
+        data-testid="variable-input"
+        onClick={() =>
+          onChange?.(
+            (globalThis as any).__TEST_PATH__ || 'name',
+            (globalThis as any).__TEST_META__ || {
+              interface: 'input',
+              uiSchema: { 'x-component': 'Input', 'x-component-props': { placeholder: 'Enter value' } },
+              paths: ['collection', 'name'],
+              name: 'name',
+              title: 'Name',
+              type: 'string',
+            },
+          )
+        }
+      >
+        mock-variable-input
+      </button>
+    );
+  };
   return { ...actual, VariableInput: MockVariableInput };
 });
 
@@ -116,6 +121,22 @@ describe('VariableFilterItem', () => {
   beforeEach(() => {
     // Ensure document body for antd portals if needed
     document.body.innerHTML = '';
+    delete (globalThis as any).__LAST_VARIABLE_INPUT_PROPS__;
+  });
+
+  it('returns undefined path for empty left value in converter', () => {
+    const value: VariableFilterItemValue = { path: '', operator: '', value: '' };
+    const model = CreateModel();
+
+    render(<VariableFilterItem value={value} model={model} rightAsVariable={false} />);
+
+    const leftVariableInputProps = (globalThis as any).__LAST_VARIABLE_INPUT_PROPS__;
+    const resolvePathFromValue = leftVariableInputProps?.converters?.resolvePathFromValue;
+
+    expect(typeof resolvePathFromValue).toBe('function');
+    expect(resolvePathFromValue('')).toBeUndefined();
+    expect(resolvePathFromValue('   ')).toBeUndefined();
+    expect(resolvePathFromValue('name')).toEqual(['collection', 'name']);
   });
 
   it('renders static right input when rightAsVariable=false and updates value on typing', async () => {
@@ -327,5 +348,56 @@ describe('VariableFilterItem', () => {
 
     // 由于 $includes 存在于子项的 x-filter-operators 中，effect 不应清空它
     expect(value.operator).toBe('$includes');
+  });
+
+  it('renders correct right-side component for formula dataType (number and boolean) and updates on change', async () => {
+    const value: VariableFilterItemValue = { path: '', operator: '$gt', value: '' };
+    const model = CreateModel();
+
+    // Number case
+    (globalThis as any).__TEST_PATH__ = 'formulaField';
+    (globalThis as any).__TEST_META__ = {
+      interface: 'formula',
+      uiSchema: { 'x-component': 'Input', 'x-component-props': { placeholder: 'Enter value' } },
+      options: { dataType: 'double' },
+      paths: ['collection', 'formulaField'],
+      name: 'formulaField',
+      title: 'Formula field',
+      type: 'number',
+    };
+
+    const { rerender } = render(<VariableFilterItem value={value} model={model} rightAsVariable={false} />);
+    fireEvent.click(screen.getByTestId('variable-input'));
+
+    // Expect an InputNumber (role spinbutton) to be rendered
+    await waitFor(() => {
+      expect(screen.getByRole('spinbutton')).toBeTruthy();
+    });
+
+    // Now change to boolean dataType and re-select the field
+    (globalThis as any).__TEST_META__ = {
+      ...(globalThis as any).__TEST_META__,
+      options: { dataType: 'boolean' },
+    };
+    fireEvent.click(screen.getByTestId('variable-input'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('switch')).toBeTruthy();
+    });
+
+    // Finally change to string and ensure Input is shown
+    (globalThis as any).__TEST_META__ = {
+      ...(globalThis as any).__TEST_META__,
+      options: { dataType: 'string' },
+    };
+    fireEvent.click(screen.getByTestId('variable-input'));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Enter value')).toBeTruthy();
+    });
+
+    // cleanup
+    delete (globalThis as any).__TEST_PATH__;
+    delete (globalThis as any).__TEST_META__;
   });
 });

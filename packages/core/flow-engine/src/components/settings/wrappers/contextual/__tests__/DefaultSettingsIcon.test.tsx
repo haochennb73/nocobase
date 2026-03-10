@@ -18,6 +18,7 @@ import { DefaultSettingsIcon } from '../DefaultSettingsIcon';
 
 // ---- Mock antd to capture Dropdown menu props ----
 const dropdownMenus: any[] = [];
+const mockColorTextTertiary = '#8c8c8c';
 vi.mock('antd', async (importOriginal) => {
   const messageApi = {
     success: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock('antd', async (importOriginal) => {
   const Dropdown = (props: any) => {
     (globalThis as any).__lastDropdownMenu = props.menu;
     (globalThis as any).__lastDropdownOnOpenChange = props.onOpenChange;
+    (globalThis as any).__lastDropdownOpen = props.open;
     dropdownMenus.push(props.menu);
     return React.createElement('span', { 'data-testid': 'dropdown' }, props.children);
   };
@@ -71,6 +73,7 @@ vi.mock('antd', async (importOriginal) => {
   const Alert = (props: any) => React.createElement('div', { role: 'alert' }, props.message ?? 'Alert');
   const Button = (props: any) => React.createElement('button', props, props.children ?? 'Button');
   const Result = (props: any) => React.createElement('div', null, props.children ?? 'Result');
+  const Tooltip = ({ children }: any) => React.createElement('span', null, children);
 
   // Keep other components from original mock/default
   return {
@@ -89,15 +92,46 @@ vi.mock('antd', async (importOriginal) => {
     Alert,
     Button,
     Result,
-    theme: { useToken: () => ({}) },
+    Tooltip,
+    theme: { useToken: () => ({ token: { colorTextTertiary: mockColorTextTertiary } }) },
   };
 });
+
+const findElement = (node: any, predicate: (element: React.ReactElement) => boolean): React.ReactElement | null => {
+  if (!node) return null;
+
+  if (React.isValidElement(node)) {
+    if (predicate(node)) {
+      return node;
+    }
+
+    const children = React.Children.toArray(node.props?.children);
+    for (const child of children) {
+      const matched = findElement(child, predicate);
+      if (matched) {
+        return matched;
+      }
+    }
+  }
+
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const matched = findElement(child, predicate);
+      if (matched) {
+        return matched;
+      }
+    }
+  }
+
+  return null;
+};
 
 describe('DefaultSettingsIcon - only static flows are shown', () => {
   beforeEach(() => {
     dropdownMenus.length = 0;
     (globalThis as any).__lastDropdownMenu = undefined;
     (globalThis as any).__lastDropdownOnOpenChange = undefined;
+    (globalThis as any).__lastDropdownOpen = undefined;
   });
 
   afterEach(() => {
@@ -239,6 +273,67 @@ describe('DefaultSettingsIcon - only static flows are shown', () => {
     });
   });
 
+  it('keeps disabled legacy step visible with tooltip and blocks click', async () => {
+    class TestFlowModel extends FlowModel {}
+    const engine = new FlowEngine();
+    const model = new TestFlowModel({ uid: 'm-disabled', flowEngine: engine });
+    const openSpy = vi.spyOn(model, 'openFlowSettings').mockResolvedValue(undefined as any);
+    const disabledReason = 'This setting has been moved to: Form block settings > Field values';
+
+    TestFlowModel.registerFlow({
+      key: 'flowDisabled',
+      title: 'Flow Disabled',
+      steps: {
+        legacyDefault: {
+          title: 'Default value',
+          disabledInSettings: true,
+          disabledReasonInSettings: disabledReason,
+          uiSchema: { f: { type: 'string', 'x-component': 'Input' } },
+        },
+      },
+    });
+
+    render(
+      React.createElement(
+        ConfigProvider as any,
+        null,
+        React.createElement(App as any, null, React.createElement(DefaultSettingsIcon as any, { model })),
+      ),
+    );
+
+    let disabledItem: any;
+    await waitFor(() => {
+      const menu = (globalThis as any).__lastDropdownMenu;
+      const items = (menu?.items || []) as any[];
+      disabledItem = items.find((it) => String(it.key || '') === 'flowDisabled:legacyDefault');
+      expect(disabledItem).toBeTruthy();
+      expect(disabledItem.disabled).toBe(true);
+    });
+
+    const resolvedLabel =
+      React.isValidElement(disabledItem.label) && typeof disabledItem.label.type === 'function'
+        ? (disabledItem.label.type as any)(disabledItem.label.props)
+        : disabledItem.label;
+
+    const tooltipElement = findElement(
+      resolvedLabel,
+      (element) =>
+        Object.prototype.hasOwnProperty.call(element.props || {}, 'title') && element.props.title === disabledReason,
+    );
+    expect(tooltipElement).toBeTruthy();
+
+    const iconElement = React.isValidElement(tooltipElement) ? tooltipElement.props.children : null;
+    expect(React.isValidElement(iconElement)).toBe(true);
+    expect((iconElement as any).props?.style?.color).toBe(mockColorTextTertiary);
+
+    const menu = (globalThis as any).__lastDropdownMenu;
+    await act(async () => {
+      menu.onClick?.({ key: 'flowDisabled:legacyDefault' });
+    });
+
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
   it('clicking a step item opens flow settings with correct args', async () => {
     class TestFlowModel extends FlowModel {}
     const engine = new FlowEngine();
@@ -265,8 +360,58 @@ describe('DefaultSettingsIcon - only static flows are shown', () => {
       expect((globalThis as any).__lastDropdownMenu).toBeTruthy();
     });
     const menu = (globalThis as any).__lastDropdownMenu;
-    menu.onClick?.({ key: 'flowC:general' });
+    await act(async () => {
+      menu.onClick?.({ key: 'flowC:general' });
+    });
     expect(openSpy).toHaveBeenCalledWith({ flowKey: 'flowC', stepKey: 'general' });
+  });
+
+  it('closes dropdown when opening flow settings modal', async () => {
+    class TestFlowModel extends FlowModel {}
+    const engine = new FlowEngine();
+    const model = new TestFlowModel({ uid: 'm-close', flowEngine: engine });
+    vi.spyOn(model, 'openFlowSettings').mockResolvedValue(undefined as any);
+
+    TestFlowModel.registerFlow({
+      key: 'flowClose',
+      title: 'Flow Close',
+      steps: {
+        general: { title: 'General', uiSchema: { f: { type: 'string', 'x-component': 'Input' } } },
+      },
+    });
+
+    render(
+      React.createElement(
+        ConfigProvider as any,
+        null,
+        React.createElement(App as any, null, React.createElement(DefaultSettingsIcon as any, { model })),
+      ),
+    );
+
+    await waitFor(() => {
+      expect((globalThis as any).__lastDropdownMenu).toBeTruthy();
+      expect((globalThis as any).__lastDropdownOnOpenChange).toBeTruthy();
+    });
+
+    // open dropdown
+    await act(async () => {
+      (globalThis as any).__lastDropdownOnOpenChange?.(true, { source: 'trigger' });
+    });
+
+    await waitFor(() => {
+      expect((globalThis as any).__lastDropdownOpen).toBe(true);
+    });
+
+    const menu = (globalThis as any).__lastDropdownMenu;
+
+    // click config item to open modal
+    await act(async () => {
+      menu.onClick?.({ key: 'flowClose:general' });
+    });
+
+    await waitFor(() => {
+      expect((globalThis as any).__lastDropdownOpen).toBe(false);
+    });
   });
 
   it('copy UID action writes model uid to clipboard', async () => {
@@ -298,7 +443,9 @@ describe('DefaultSettingsIcon - only static flows are shown', () => {
       expect((globalThis as any).__lastDropdownMenu).toBeTruthy();
     });
     const menu = (globalThis as any).__lastDropdownMenu;
-    menu.onClick?.({ key: 'copy-uid' });
+    await act(async () => {
+      menu.onClick?.({ key: 'copy-uid' });
+    });
     expect((navigator as any).clipboard.writeText).toHaveBeenCalledWith('m-copy');
   });
 
@@ -326,7 +473,9 @@ describe('DefaultSettingsIcon - only static flows are shown', () => {
       expect((globalThis as any).__lastDropdownMenu).toBeTruthy();
     });
     const menu = (globalThis as any).__lastDropdownMenu;
-    menu.onClick?.({ key: 'delete' });
+    await act(async () => {
+      menu.onClick?.({ key: 'delete' });
+    });
     expect(destroySpy).toHaveBeenCalled();
   });
 
@@ -556,8 +705,11 @@ describe('DefaultSettingsIcon - extra menu items', () => {
       });
 
       const menu = (globalThis as any).__lastDropdownMenu;
-      menu.onClick?.({ key: 'extra-action' });
+      await act(async () => {
+        menu.onClick?.({ key: 'extra-action' });
+      });
       expect(onClick).toHaveBeenCalled();
+      expect((globalThis as any).__lastDropdownOpen).toBe(false);
     } finally {
       dispose?.();
     }

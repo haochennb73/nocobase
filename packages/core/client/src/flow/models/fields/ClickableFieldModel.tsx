@@ -14,6 +14,7 @@ import React from 'react';
 import { EllipsisWithTooltip } from '../../components';
 import { openViewFlow } from '../../flows/openViewFlow';
 import { FieldModel } from '../base';
+import { EditFormModel } from '../blocks/form/EditFormModel';
 
 export function transformNestedData(inputData) {
   const resultArray = [];
@@ -58,7 +59,9 @@ export class ClickableFieldModel extends FieldModel {
         // also incorrect for v1
         filterByTk = currentRecord[targetCollection.filterTargetKey];
       }
-      const parentObj = associationPathName ? get(this.context.record, associationPathName) : this.context.record;
+      const parentObj = associationPathName
+        ? get(this.context.blockModel?.form?.getFieldsValue?.(true) || this.context.record, associationPathName)
+        : this.context.record;
       this.dispatchEvent(
         'click',
         {
@@ -121,7 +124,7 @@ export class ClickableFieldModel extends FieldModel {
       {
         event,
         sourceId: this.context.resource?.getSourceId(),
-        filterByTk: this.context.collection.getFilterByTK(this.context.currentObject || this.context.record),
+        filterByTk: this.context.collection.getFilterByTK(this.context.item?.value || this.context.record),
       },
       {
         debounce: true,
@@ -261,9 +264,17 @@ ClickableFieldModel.registerFlow({
       title: tExpr('Enable click-to-open'),
       uiMode: { type: 'switch', key: 'clickToOpen' },
       defaultParams: (ctx) => {
+        if (ctx.disableFieldClickToOpen) {
+          return {
+            clickToOpen: false,
+          };
+        }
         return {
           clickToOpen: ctx.collectionField.isAssociationField(),
         };
+      },
+      hideInSettings(ctx) {
+        return ctx.disableFieldClickToOpen;
       },
       handler(ctx, params) {
         ctx.model.setProps({ clickToOpen: params.clickToOpen, ...ctx.collectionField.getComponentProps() });
