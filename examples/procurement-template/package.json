@@ -1,0 +1,23 @@
+{
+  "name": "procurement-supplier-template",
+  "version": "1.0.0",
+  "description": "採購供應商管理 Excel テンプレートジェネレーター / Procurement Supplier Management Excel Template Generator",
+  "main": "generate-template.js",
+  "scripts": {
+    "generate": "node generate-template.js"
+  },
+  "keywords": [
+    "procurement",
+    "supplier",
+    "excel",
+    "template",
+    "nocobase"
+  ],
+  "license": "AGPL-3.0",
+  "peerDependencies": {
+    "exceljs": "^4.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
