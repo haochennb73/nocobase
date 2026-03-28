@@ -331,7 +331,7 @@ alembic>=1.13.0
 redis>=5.0.0
 
 # 文件处理
-pypdf2>=3.0.0
+PyPDF2>=3.0.0
 python-multipart>=0.0.9
 
 # 工具
