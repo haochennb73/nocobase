@@ -1,6 +1,7 @@
 # Deep Agent 项目规划文档
 
-> 本文档描述如何从零搭建一个基于 LangChain / LangGraph + 通义 DashScope 的 Deep Agent 项目，涵盖知识库问答、代码助手、数据分析和通用多工具工作流四大应用场景。
+> 本文档描述如何从零搭建一个基于 **`deepagents`**（langchain-ai/deepagents）+ 通义 DashScope 的 Deep Agent 项目，涵盖知识库问答、代码助手、数据分析和通用多工具工作流四大应用场景。
+> `deepagents` 是 LangChain 官方提供的开箱即用 Agent 框架，内置规划、文件上下文管理、子 Agent 派生和 Shell 访问等核心能力，底层由 LangChain + LangGraph 驱动。
 
 ---
 
@@ -8,7 +9,7 @@
 
 ### 1.1 项目目标
 
-基于 **LangChain / LangGraph** 的 Deep Agent 架构，实现以下四大应用场景：
+基于 **`deepagents`**（langchain-ai/deepagents）+ LangChain / LangGraph 的 Deep Agent 架构，实现以下四大应用场景：
 
 | 场景 | 说明 |
 |------|------|
@@ -22,14 +23,47 @@
 | 层次 | 技术 | 说明 |
 |------|------|------|
 | **LLM 接口** | 通义 DashScope | 支持 qwen-max / qwen-plus / qwen-turbo 等模型动态切换 |
-| **Agent 引擎** | LangGraph | 有向图状态机，实现 Planner → Executor → Verifier 多步骤循环 |
-| **LangChain** | langchain / langchain-community | Chain、Tool、Retriever、Prompt 等基础积木 |
+| **Agent 框架** | `deepagents` (langchain-ai/deepagents) | LangChain 官方开箱即用 Agent 框架，内置规划、文件上下文、子 Agent 等能力 |
+| **Agent 引擎** | LangGraph（deepagents 底层） | 有向图状态机，deepagents 在其之上构建 Planner → Executor → Verifier 循环 |
+| **LangChain** | langchain / langchain-community | Chain、Tool、Retriever、Prompt 等基础积木，deepagents 依赖层 |
 | **前端** | React + Next.js (App Router) | 对话界面 + 任务面板 + 知识库管理 |
 | **后端** | FastAPI (Python) | 异步 API 服务，WebSocket 支持流式输出 |
 | **向量数据库** | Milvus | 生产级向量检索，支持多集合/多场景 |
 | **关系数据库** | PostgreSQL | 用户、会话、任务持久化 |
 | **缓存** | Redis | 会话状态缓存 + 流式消息中转 |
 | **部署** | Docker Desktop (Windows) | docker-compose 一键编排所有服务 |
+
+### 1.3 为什么使用 `deepagents`？
+
+[`deepagents`](https://github.com/langchain-ai/deepagents)（`pip install deepagents`）是 LangChain 官方发布的 **开箱即用 Agent 框架**，与本项目手写的 Planner / Executor / Verifier 相比，它提供了以下现成能力：
+
+| 能力 | deepagents 内置实现 | 无 deepagents 时需自行实现 |
+|------|---------------------|--------------------------|
+| **任务规划** | 内置 `write_todos` 工具，可拆解并跟踪子任务 | 手写 planner_node + prompt |
+| **文件/上下文管理** | `read_file` / `write_file` 工具，防止 LLM 上下文溢出 | 手写外部存储逻辑 |
+| **子 Agent 派生** | 内置 sub-agent 调度，隔离复杂子任务 | 手写 multi-agent 协调 |
+| **Shell 访问** | 受控 Shell 命令执行（可选沙箱） | 手写 subprocess 封装 |
+| **提供者无关** | 支持 OpenAI / Anthropic / 通义等（通过 LangChain） | 无差异，统一接口 |
+| **流式输出** | 原生支持 streaming | 需在 LangGraph 层面配置 |
+
+**在本项目中的使用方式**：
+- 以 `create_deep_agent()` 作为 Agent 核心，替代手写的 `build_agent_graph()`
+- 在 `create_deep_agent` 的 `tools` 参数中注入业务自定义工具（知识库检索、数据分析等）
+- 通过 `llm` 参数传入 DashScope 的 `ChatTongyi`，实现通义模型接入
+
+```python
+# 快速上手示例
+from deepagents import create_deep_agent
+from app.services.llm import get_llm
+from app.agent.tools.knowledge_retriever import knowledge_retriever
+from app.agent.tools.code_exec import python_executor
+
+agent = create_deep_agent(
+    llm=get_llm("qwen-max"),
+    tools=[knowledge_retriever, python_executor],
+)
+result = await agent.ainvoke({"messages": [{"role": "user", "content": "分析上传的报表并给出摘要"}]})
+```
 
 ---
 
@@ -291,14 +325,13 @@ async def startup():
 # backend/app/api/chat.py
 from fastapi import APIRouter, WebSocket
 from app.agent.graph import build_agent_graph
-from app.services.llm import get_llm
 
 router = APIRouter()
 
 @router.post("/")
 async def chat(request: ChatRequest):
     """同步对话（短任务）"""
-    graph = build_agent_graph(llm=get_llm(request.model))
+    graph = build_agent_graph(model=request.model)
     result = await graph.ainvoke({"messages": [request.message]})
     return {"reply": result["messages"][-1].content}
 
@@ -307,7 +340,7 @@ async def chat_stream(websocket: WebSocket):
     """流式对话（WebSocket，实时推送每一步）"""
     await websocket.accept()
     data = await websocket.receive_json()
-    graph = build_agent_graph(llm=get_llm(data.get("model", "qwen-max")))
+    graph = build_agent_graph(model=data.get("model", "qwen-max"))
     async for chunk in graph.astream({"messages": [data["message"]]}):
         await websocket.send_json({"type": "chunk", "data": chunk})
     await websocket.send_json({"type": "done"})
@@ -339,34 +372,45 @@ async def delete_document(doc_id: str):
     ...
 ```
 
-#### 3.2.3 LangGraph Agent 状态机 (`backend/app/agent/graph.py`)
+#### 3.2.3 Agent 核心：基于 `deepagents` 构建 (`backend/app/agent/graph.py`)
+
+使用 `deepagents` 提供的 `create_deep_agent` 工厂函数作为 Agent 基础，注入自定义工具即可得到完整的
+Planner → Executor → Verifier 状态机（含内置规划、文件上下文管理、子 Agent 支持等能力）。
 
 ```python
-from langgraph.graph import StateGraph, END
-from app.agent.state import AgentState
-from app.agent.planner import planner_node
-from app.agent.executor import executor_node
-from app.agent.verifier import verifier_node
+# backend/app/agent/graph.py
+from deepagents import create_deep_agent
+from app.services.llm import get_llm
+from app.agent.tools.search import web_search
+from app.agent.tools.code_exec import python_executor
+from app.agent.tools.data_analysis import analyze_csv
+from app.agent.tools.knowledge_retriever import knowledge_retriever
+from app.agent.tools.api_caller import http_get
 
-def build_agent_graph(llm):
-    graph = StateGraph(AgentState)
+ALL_TOOLS = [web_search, python_executor, analyze_csv, knowledge_retriever, http_get]
 
-    graph.add_node("planner",  lambda s: planner_node(s, llm))
-    graph.add_node("executor", lambda s: executor_node(s, llm))
-    graph.add_node("verifier", lambda s: verifier_node(s, llm))
-
-    graph.set_entry_point("planner")
-    graph.add_edge("planner", "executor")
-    graph.add_edge("executor", "verifier")
-
-    # 校验通过 → 结束；未通过 → 回到 executor 重试（最多 3 次）
-    graph.add_conditional_edges(
-        "verifier",
-        lambda s: END if s["verified"] or s["retry_count"] >= 3 else "executor",
+def build_agent_graph(model: str = "qwen-max", tools: list | None = None):
+    """
+    以 deepagents.create_deep_agent 为基础构建 Agent。
+    - llm: 通义 DashScope 模型（ChatTongyi）
+    - tools: 业务自定义工具列表（在 deepagents 内置工具之上追加）
+    返回可直接调用 .ainvoke() / .astream() 的 CompiledGraph。
+    """
+    return create_deep_agent(
+        llm=get_llm(model),
+        tools=tools or ALL_TOOLS,
     )
-
-    return graph.compile()
 ```
+
+> **与纯 LangGraph 手写方案的对比**
+>
+> | 方式 | 需要自行实现 | 优点 |
+> |------|------------|------|
+> | `create_deep_agent`（推荐） | 只需提供工具列表和 LLM | 开箱即用，内置规划/文件上下文/子 Agent |
+> | 纯 LangGraph 手写 | Planner / Executor / Verifier 节点、状态结构、重试逻辑均需自写 | 完全可控，适合深度定制 |
+>
+> 若需要对状态机做深度定制（如自定义节点跳转逻辑），可在 `create_deep_agent` 返回的图上继续调用
+> LangGraph API 追加节点或修改边。
 
 #### 3.2.4 DashScope 模型服务 (`backend/app/services/llm.py`)
 
@@ -479,6 +523,9 @@ langchain>=0.2.0
 langchain-core>=0.2.0
 langchain-community>=0.2.0
 langgraph>=0.1.0
+
+# ── deepagents（LangChain 官方 Agent 框架）────
+deepagents>=0.4.12
 
 # ── 通义 DashScope ───────────────────────────
 dashscope>=1.17.0
@@ -697,10 +744,15 @@ def analyze_csv(file_path: str, query: str) -> str:
 
 ### 5.4 通用多工具工作流
 
-**工具集注册**
+**架构基础**：以 `deepagents.create_deep_agent` 驱动整个工作流，注入全部自定义工具。
+`deepagents` 内置的 `write_todos` 工具承担任务规划职责，`read_file` / `write_file` 防止长任务上下文溢出。
+
+**工具集注册与 Agent 构建**
 
 ```python
-# backend/app/agent/graph.py（工具绑定片段）
+# backend/app/agent/graph.py
+from deepagents import create_deep_agent
+from app.services.llm import get_llm
 from app.agent.tools.search import web_search
 from app.agent.tools.code_exec import python_executor
 from app.agent.tools.data_analysis import analyze_csv
@@ -709,10 +761,16 @@ from app.agent.tools.api_caller import http_get
 
 ALL_TOOLS = [web_search, python_executor, analyze_csv, knowledge_retriever, http_get]
 
-def build_agent_graph(llm, tools=None):
-    tools = tools or ALL_TOOLS
-    llm_with_tools = llm.bind_tools(tools)
-    # … 构建 LangGraph 状态机（见 3.2.3）
+def build_agent_graph(model: str = "qwen-max", tools: list | None = None):
+    """
+    使用 deepagents 构建 Agent：
+    - deepagents 内置工具（规划、文件 I/O、Shell）自动可用
+    - ALL_TOOLS 中的业务工具叠加注入
+    """
+    return create_deep_agent(
+        llm=get_llm(model),
+        tools=tools or ALL_TOOLS,
+    )
 ```
 
 **Planner 节点**（拆解子任务）
@@ -791,11 +849,13 @@ from app.agent.graph import build_agent_graph
 
 @pytest.mark.asyncio
 async def test_agent_graph_completes():
-    mock_llm = AsyncMock()
-    mock_llm.ainvoke.return_value.content = '{"reply": "测试回答"}'
-    graph = build_agent_graph(llm=mock_llm)
-    result = await graph.ainvoke({"messages": ["你好"]})
-    assert "messages" in result
+    with patch("app.agent.graph.get_llm") as mock_get_llm:
+        mock_llm = AsyncMock()
+        mock_llm.ainvoke.return_value.content = '{"reply": "测试回答"}'
+        mock_get_llm.return_value = mock_llm
+        graph = build_agent_graph(model="qwen-max")
+        result = await graph.ainvoke({"messages": ["你好"]})
+        assert "messages" in result
 ```
 
 ### 6.2 API 集成测试
