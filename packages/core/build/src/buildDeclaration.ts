@@ -51,7 +51,60 @@ function loadCompilerOptions(): ts.CompilerOptions {
     ...parsedConfig.options,
   };
   delete options.paths;
+  // Inject aliases for packages without pre-built declarations.
+  // Prefer .d.ts (fast) over .ts (slow but always correct).
+  const tryInjectAlias = (pkgName: string, ...candidates: string[]) => {
+    for (const candidate of candidates) {
+      if (ts.sys.fileExists(candidate)) {
+        options.paths = { ...(options.paths || {}), [pkgName]: [candidate] };
+        return;
+      }
+    }
+  };
+  tryInjectAlias(
+    '@nocobase/client',
+    path.join(ROOT_PATH, 'packages/core/client/src/index.d.ts'),
+    path.join(ROOT_PATH, 'packages/core/client/src/index.ts'),
+  );
+  tryInjectAlias(
+    '@nocobase/flow-engine',
+    path.join(ROOT_PATH, 'packages/core/flow-engine/src/index.d.ts'),
+    path.join(ROOT_PATH, 'packages/core/flow-engine/src/index.ts'),
+  );
   return options;
+}
+
+function createDeclarationCompilerHost(options: ts.CompilerOptions, declarationDir: string): ts.CompilerHost {
+  const host = ts.createCompilerHost(options);
+  // Redirect .ts/.tsx → .d.ts when a sibling .d.ts exists (performance: avoids compiling source).
+  host.resolveModuleNames = (moduleNames, containingFile, reusedNames, redirectedReference, compilerOptions) => {
+    return moduleNames.map((moduleName) => {
+      const resolved = ts.resolveModuleName(moduleName, containingFile, compilerOptions, host, undefined, redirectedReference)
+        .resolvedModule;
+      if (!resolved) {
+        return resolved;
+      }
+      if (/\.(?:cts|mts|ts|tsx)$/.test(resolved.resolvedFileName)) {
+        const dtsFile = resolved.resolvedFileName.replace(/\.(?:cts|mts|ts|tsx)$/, '.d.ts');
+        if (host.fileExists(dtsFile)) {
+          return {
+            ...resolved,
+            resolvedFileName: dtsFile,
+            extension: ts.Extension.Dts,
+          };
+        }
+      }
+      return resolved;
+    });
+  };
+  // Only write declarations for the plugin's own files (skip external package files).
+  const origWriteFile = host.writeFile;
+  host.writeFile = (fileName, data, writeByteOrderMark, onError, sourceFiles) => {
+    if (path.normalize(fileName).startsWith(path.normalize(declarationDir) + path.sep)) {
+      origWriteFile(fileName, data, writeByteOrderMark, onError, sourceFiles);
+    }
+  };
+  return host;
 }
 
 export const buildDeclaration = async (cwd: string, targetDir: string) => {
@@ -77,9 +130,18 @@ export const buildDeclaration = async (cwd: string, targetDir: string) => {
     rootDir: srcPath,
   } satisfies ts.CompilerOptions;
 
-  const program = ts.createProgram(files, compilerOptions);
+  const compilerHost = createDeclarationCompilerHost(compilerOptions, targetPath);
+  const program = ts.createProgram(files, compilerOptions, compilerHost);
   const emitResult = program.emit(undefined, undefined, undefined, true);
-  const diagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics);
+  const allDiagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics);
+  // Only report diagnostics for the plugin's own source files.
+  // External package source files (e.g. @nocobase/client/src/**) are included only
+  // for type resolution and may have pre-existing errors we don't want to surface.
+  const diagnostics = allDiagnostics.filter((d) => {
+    if (d.code === 6059) return false; // rootDir violations from external package source
+    if (!d.file) return true;
+    return d.file.fileName.startsWith(srcPath);
+  });
 
   if (diagnostics.length) {
     const details = ts.formatDiagnosticsWithColorAndContext(diagnostics, diagnosticHost);
