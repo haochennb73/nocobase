@@ -10,7 +10,7 @@
 import React from 'react';
 import { ISchema } from '@formily/react';
 
-import { css, useCollectionRecordData } from '@nocobase/client';
+import { useCollectionRecordData } from '@nocobase/client';
 
 import { NAMESPACE } from '../locale';
 import { executionSchema } from './executions';
@@ -157,10 +157,10 @@ export const workflowSchema: ISchema = {
                   },
                   'x-action': 'filter',
                   'x-component': 'Filter.Action',
-                  'x-use-component-props': 'useWorkflowFilterActionProps',
+                  'x-use-component-props': 'useResourceFilterActionProps',
                   'x-component-props': {
                     icon: 'FilterOutlined',
-                    nonfilterable: ['description', 'categories'],
+                    nonfilterable: ['id', 'description', 'categories'],
                   },
                   'x-align': 'left',
                 },
@@ -332,7 +332,7 @@ export const workflowSchema: ISchema = {
                   type: 'void',
                   'x-decorator': 'Table.Column.Decorator',
                   'x-component': 'Table.Column',
-                  title: `{{ t("Status", { ns: "${NAMESPACE}" }) }}`,
+                  title: `{{ t("Enabled", { ns: "${NAMESPACE}" }) }}`,
                   properties: {
                     enabled: {
                       type: 'boolean',

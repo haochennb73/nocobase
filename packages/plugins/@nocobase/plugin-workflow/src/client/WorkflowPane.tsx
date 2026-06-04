@@ -38,7 +38,7 @@ import { TriggerOptionRender } from './components/TriggerOptionRender';
 import { lang } from './locale';
 import { CategoryTabs } from './WorkflowCategoryTabs';
 import { EnumerationField } from './components/EmunerationField';
-import { useWorkflowFilterActionProps } from './hooks/useWorkflowFilterActionProps';
+import { useResourceFilterActionProps } from './hooks/useResourceFilterActionProps';
 import { ExecutionStatusOptions } from './constants';
 
 function SyncOptionSelect(props) {
@@ -164,8 +164,7 @@ function WorkflowEnabledSwitch() {
   return (
     <Switch
       checked={Boolean(record?.enabled)}
-      checkedChildren={lang('On')}
-      unCheckedChildren={lang('Off')}
+      size="small"
       disabled={loading || !record?.id}
       loading={loading}
       onClick={(val, e) => e?.stopPropagation?.()}
@@ -198,7 +197,7 @@ export function WorkflowPane() {
           useTriggersOptions,
           useWorkflowSyncReaction,
           useSyncAction,
-          useWorkflowFilterActionProps,
+          useResourceFilterActionProps,
           useRefreshActionProps,
           useRevisionAction,
           TriggerOptionRender,

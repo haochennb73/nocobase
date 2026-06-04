@@ -35,6 +35,7 @@ import { ActionModel, BlockSceneEnum, CollectionBlockModel } from '../../base';
 import { QuickEditFormModel } from '../form/QuickEditFormModel';
 import { TableColumnModel } from './TableColumnModel';
 import { extractIndex, adjustColumnOrder, setNestedValue, extractIds, getRowKey, useBlockHeight } from './utils';
+import { resolveTableSorterField } from './sortUtils';
 import { commonConditionHandler, ConditionBuilder } from '../../../components/ConditionBuilder';
 import {
   applyMobilePaginationProps,
@@ -311,7 +312,14 @@ export class TableBlockModel extends CollectionBlockModel<TableBlockModelStructu
                   onSuccess: (values) => {
                     const collectionField = this.collection.getField(dataIndex);
                     record[dataIndex] = values[dataIndex];
-                    setNestedValue(this.resource.getData(), recordIndex, record);
+                    if (typeof recordIndex === 'number') {
+                      this.resource.setItem(recordIndex, record);
+                    } else {
+                      const nextData = _.cloneDeep(this.resource.getData());
+                      setNestedValue(nextData, recordIndex, record);
+                      this.resource.setData(nextData);
+                    }
+                    this.resource.emit('refresh');
                     // 仅重渲染单元格
                     const fork: ForkFlowModel = model.subModels.field.createFork({}, `${recordIndex}`);
                     // Provide expandable meta for current row record based on the collection in context
@@ -553,6 +561,9 @@ export class TableBlockModel extends CollectionBlockModel<TableBlockModelStructu
           columns={this.columns.value}
           pagination={this.pagination()}
           highlightedRowKey={highlightedRowKey}
+          selectedRowKeysFromResource={this.resource
+            .getSelectedRows()
+            .map((row) => getRowKey(row, this.collection.filterTargetKey))}
           defaultExpandAllRows={this.props.defaultExpandAllRows}
           expandedRowKeys={this.props.expandedRowKeys}
           heightMode={heightMode}
@@ -571,6 +582,7 @@ const TableBlockContent = (props: {
   columns: any;
   pagination: any;
   highlightedRowKey: string;
+  selectedRowKeysFromResource: string[];
   defaultExpandAllRows?: boolean;
   expandedRowKeys?: any[];
   heightMode?: string;
@@ -584,6 +596,7 @@ const TableBlockContent = (props: {
     columns,
     pagination,
     highlightedRowKey,
+    selectedRowKeysFromResource,
     defaultExpandAllRows,
     expandedRowKeys,
     heightMode,
@@ -610,6 +623,7 @@ const TableBlockContent = (props: {
           columns={columns}
           pagination={pagination}
           highlightedRowKey={highlightedRowKey}
+          selectedRowKeysFromResource={selectedRowKeysFromResource}
           defaultExpandAllRows={defaultExpandAllRows}
           expandedRowKeys={expandedRowKeys}
           tableScroll={tableScroll}
@@ -819,6 +833,7 @@ const HighPerformanceTable = React.memo(
     columns: any;
     pagination: any;
     highlightedRowKey: string;
+    selectedRowKeysFromResource: string[];
     defaultExpandAllRows?: boolean;
     expandedRowKeys?: any[];
     tableScroll;
@@ -831,6 +846,7 @@ const HighPerformanceTable = React.memo(
       columns,
       pagination: _pagination,
       highlightedRowKey,
+      selectedRowKeysFromResource,
       defaultExpandAllRows,
       expandedRowKeys,
       tableScroll,
@@ -838,9 +854,17 @@ const HighPerformanceTable = React.memo(
     const dataSourceRef = useRef(dataSource);
     dataSourceRef.current = dataSource;
 
-    const [selectedRowKeys, setSelectedRowKeys] = React.useState<string[]>(() =>
-      model.resource.getSelectedRows().map((row) => getRowKey(row, model.collection.filterTargetKey)),
-    );
+    const [selectedRowKeys, setSelectedRowKeys] = React.useState<string[]>(selectedRowKeysFromResource || []);
+
+    useEffect(() => {
+      const nextSelectedRowKeys = selectedRowKeysFromResource || [];
+      setSelectedRowKeys((prev) => {
+        if (_.isEqual(prev, nextSelectedRowKeys)) {
+          return prev;
+        }
+        return nextSelectedRowKeys;
+      });
+    }, [selectedRowKeysFromResource]);
 
     const getRowKeyFunc = useCallback(
       (record) => {
@@ -868,7 +892,9 @@ const HighPerformanceTable = React.memo(
         const globalSort = model.props.globalSort;
         const resourceSort = model.resource.getSort();
         const currentSort = resourceSort?.length ? resourceSort : globalSort;
-        const sort = sorter.order ? (sorter.order === `ascend` ? [sorter.field] : [`-${sorter.field}`]) : currentSort;
+        const sorterField = resolveTableSorterField(sorter);
+        const sort =
+          sorter.order && sorterField ? (sorter.order === `ascend` ? [sorterField] : [`-${sorterField}`]) : currentSort;
         if (sorter) {
           model.resource.setSort(sort);
         }
@@ -904,12 +930,12 @@ const HighPerformanceTable = React.memo(
 
         return {
           onClick: async (event) => {
-            if (highlightedRowKey !== rowKey) {
-              defineClickedRowRecordVariable(model, record);
-              await model.dispatchEvent('rowClick', { record, rowIndex, event });
+            const selected = highlightedRowKey !== rowKey;
+            defineClickedRowRecordVariable(model, selected ? record : null);
+            try {
+              await model.dispatchEvent('rowClick', { record, rowIndex, event, selected });
+            } finally {
               removeClickedRowRecordVariable(model);
-            } else {
-              await model.dispatchEvent('rowClick', { record, rowIndex, event });
             }
           },
           rowIndex,
@@ -979,8 +1005,16 @@ const HighPerformanceTable = React.memo(
             `
           : undefined;
 
-      return classNames(baseClass, selectionPaddingClass);
-    }, [model.props.dragSort, model.props.dragSortBy]);
+      const tableBodyMinHeightClass = tableScroll?.y
+        ? css`
+            .ant-table-body {
+              min-height: ${tableScroll.y}px;
+            }
+          `
+        : undefined;
+
+      return classNames(baseClass, selectionPaddingClass, tableBodyMinHeightClass);
+    }, [model.props.dragSort, model.props.dragSortBy, tableScroll?.y]);
 
     return (
       <MemoizedTable
@@ -1036,7 +1070,12 @@ TableBlockModel.registerEvents({
 
       const model = ctx.model as TableBlockModel;
       const rowKey = getRowKey(ctx.inputArgs.record, model.collection.filterTargetKey);
-      if (model.props.highlightedRowKey !== rowKey) {
+      const selected = ctx.inputArgs.selected;
+      if (selected === true) {
+        model.highlightRow(ctx.inputArgs.record);
+      } else if (selected === false) {
+        model.clearHighlight();
+      } else if (model.props.highlightedRowKey !== rowKey) {
         model.highlightRow(ctx.inputArgs.record);
       } else {
         model.clearHighlight();

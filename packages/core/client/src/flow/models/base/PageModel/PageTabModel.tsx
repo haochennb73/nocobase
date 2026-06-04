@@ -20,7 +20,7 @@ import { BlockGridModel } from '../BlockGridModel';
 function PageTabChildrenRenderer({ ctx, options }) {
   const { data, loading } = useRequest(
     async () => {
-      const model: FlowModel = await ctx.engine.loadOrCreateModel(options);
+      const model: FlowModel = await ctx.engine.loadOrCreateModel(options, { skipSave: !ctx.flowSettingsEnabled });
       model.context.addDelegate(ctx);
       return model;
     },
@@ -86,7 +86,7 @@ export class BasePageTabModel extends FlowModel<{
 
   renderHiddenInConfig() {
     return (
-      <span style={{ display: 'inline-block', paddingTop: this.context.flowSettingsEnabled ? 10 : 0, opacity: 0.5 }}>
+      <span style={{ display: 'inline-block', opacity: 0.5 }}>
         <Icon style={{ marginRight: 8 }} type={this.getTabIcon()} />
         {this.getTabTitle()}
       </span>
@@ -95,7 +95,7 @@ export class BasePageTabModel extends FlowModel<{
 
   render() {
     return (
-      <span style={{ display: 'inline-block', paddingTop: this.context.flowSettingsEnabled ? 10 : 0 }}>
+      <span style={{ display: 'inline-block' }}>
         <Icon style={{ marginRight: 8 }} type={this.getTabIcon()} />
         {this.getTabTitle()}
       </span>

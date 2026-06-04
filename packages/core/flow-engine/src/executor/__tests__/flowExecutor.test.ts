@@ -81,6 +81,34 @@ describe('FlowExecutor', () => {
     expect(result.step2).toBe('step2-ok');
   });
 
+  it('runFlow warns and skips steps without use or handler', async () => {
+    const flows = {
+      referenceSettings: {
+        steps: {
+          target: {},
+        },
+      },
+    } satisfies Record<string, Omit<FlowDefinitionOptions, 'key'>>;
+    const model = createModelWithFlows('m-empty-step', flows);
+    const loggerChildSpy = vi.spyOn(engine.logger, 'child').mockReturnValue(engine.logger);
+    const loggerWarnSpy = vi.spyOn(engine.logger, 'warn').mockImplementation(() => {});
+    const loggerErrorSpy = vi.spyOn(engine.logger, 'error').mockImplementation(() => {});
+
+    try {
+      const result = await engine.executor.runFlow(model, 'referenceSettings');
+
+      expect(result).toEqual({});
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        "BaseModel.applyFlow: Step 'target' in flow 'referenceSettings' has neither 'use' nor 'handler'. Skipping.",
+      );
+      expect(loggerErrorSpy).not.toHaveBeenCalled();
+    } finally {
+      loggerChildSpy.mockRestore();
+      loggerWarnSpy.mockRestore();
+      loggerErrorSpy.mockRestore();
+    }
+  });
+
   it("dispatchEvent('beforeRender') executes flows in sort order and caches result (when options specify)", async () => {
     const calls: string[] = [];
     const mkFlow = (key: string, sort: number) => ({
@@ -230,6 +258,37 @@ describe('FlowExecutor', () => {
 
     // 在并行模式下，b 不会被 exitAll 中断
     expect(calls.sort()).toEqual(['a', 'b']);
+  });
+
+  it('dispatchEvent sequential exposes abortedByExitAll metadata on result array', async () => {
+    const flows = {
+      stopClose: {
+        on: { eventName: 'close' },
+        steps: {
+          only: {
+            handler: vi.fn().mockImplementation((ctx) => {
+              ctx.exit();
+            }),
+          },
+        },
+      },
+      afterClose: {
+        on: { eventName: 'close', phase: 'afterAllFlows' },
+        steps: {
+          only: {
+            handler: vi.fn(),
+          },
+        },
+      },
+    } satisfies Record<string, Omit<FlowDefinitionOptions, 'key'>>;
+
+    const model = createModelWithFlows('m-close-meta', flows);
+
+    const result = await engine.executor.dispatchEvent(model, 'close', {}, { sequential: true });
+
+    expect(Array.isArray(result)).toBe(true);
+    expect((result as any).__abortedByExitAll).toBe(true);
+    expect(flows.afterClose.steps.only.handler).not.toHaveBeenCalled();
   });
 
   it('dispatchEvent sequential respects sort order and stops on errors', async () => {

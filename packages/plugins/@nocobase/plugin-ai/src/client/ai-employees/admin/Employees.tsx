@@ -8,15 +8,21 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Avatar as AntdAvatar, Space, Tabs } from 'antd';
-import { ExtendCollectionsProvider, SchemaComponent, useAPIClient } from '@nocobase/client';
+import { Avatar as AntdAvatar, Radio, Space, Tabs, Tooltip } from 'antd';
+import {
+  ExtendCollectionsProvider,
+  SchemaComponent,
+  useAPIClient,
+  useTableBlockContext,
+  useRecord,
+} from '@nocobase/client';
 import { useT } from '../../locale';
 import { useField } from '@formily/react';
 import { Field } from '@formily/core';
 import { avatars } from '../avatars';
 import { ProfileSettings } from './ProfileSettings';
 import { SystemPrompt } from './SystemPrompt';
-import aiEmployees from '../../../collections/ai-employees';
+import aiEmployees, { type AIEmployee } from '../../../collections/ai-employees';
 import { SkillSettings } from './SkillSettings';
 import { Templates } from './Templates';
 import {
@@ -28,7 +34,7 @@ import {
   useDeleteActionProps,
 } from './hooks';
 import { KnowledgeBaseSettings } from './KnowledgeBaseSettings';
-import { CheckOutlined } from '@ant-design/icons';
+import { CheckOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { EnableSwitch } from './EnableSwitch';
 
 const AIEmployeeForm: React.FC<{
@@ -103,12 +109,74 @@ const Enabled: React.FC = (props) => {
   return field.value && <CheckOutlined style={{ color: '#52c41a' }} />;
 };
 
+const CategoryFilter: React.FC = () => {
+  const t = useT();
+  const { service } = useTableBlockContext();
+  const category = service?.params?.[0]?.filter?.category || 'business';
+  const options = [
+    { label: t('Business'), value: 'business' },
+    { label: t('Developer'), value: 'developer' },
+  ];
+
+  return (
+    <Radio.Group
+      value={category}
+      optionType="button"
+      options={options}
+      onChange={(e) => {
+        if (e.target.value === category) {
+          return;
+        }
+        service?.run({
+          ...service?.params?.[0],
+          page: 1,
+          filter: {
+            ...service?.params?.[0]?.filter,
+            category: e.target.value,
+          },
+        });
+      }}
+    />
+  );
+};
+
+const Username: React.FC = () => {
+  const t = useT();
+  const field = useField<Field<string>>();
+  const record = useRecord<AIEmployee>();
+  const missingKnowledgeBaseKeys = record?.missingKnowledgeBaseKeys || [];
+
+  if (!field.value) {
+    return null;
+  }
+
+  if (!missingKnowledgeBaseKeys.length) {
+    return <span>{field.value}</span>;
+  }
+
+  return (
+    <Space size={4}>
+      <span>{field.value}</span>
+      <Tooltip
+        title={t(
+          'Missing knowledge base configuration for keys: {{keys}}. Create knowledge bases with the same keys to enable this employee normally.',
+          {
+            keys: missingKnowledgeBaseKeys.join(', '),
+          },
+        )}
+      >
+        <ExclamationCircleOutlined style={{ color: '#faad14', cursor: 'help' }} />
+      </Tooltip>
+    </Space>
+  );
+};
+
 export const Employees: React.FC = () => {
   const t = useT();
   return (
     <ExtendCollectionsProvider collections={[aiEmployees]}>
       <SchemaComponent
-        components={{ AIEmployeeForm, Avatar, Templates, Enabled, EnableSwitch }}
+        components={{ AIEmployeeForm, Avatar, Templates, Enabled, EnableSwitch, CategoryFilter, Username }}
         scope={{
           t,
           useCreateFormProps,
@@ -132,6 +200,11 @@ export const Employees: React.FC = () => {
               'x-decorator-props': {
                 collection: 'aiEmployees',
                 action: 'list',
+                params: {
+                  filter: {
+                    category: 'business',
+                  },
+                },
                 rowKey: 'username',
                 dragSort: true,
                 dragSortBy: 'sort',
@@ -146,6 +219,11 @@ export const Employees: React.FC = () => {
                     },
                   },
                   properties: {
+                    categoryFilter: {
+                      type: 'void',
+                      'x-align': 'left',
+                      'x-component': 'CategoryFilter',
+                    },
                     refresh: {
                       title: "{{t('Refresh')}}",
                       'x-component': 'Action',
@@ -259,7 +337,7 @@ export const Employees: React.FC = () => {
                       properties: {
                         username: {
                           type: 'string',
-                          'x-component': 'Input',
+                          'x-component': 'Username',
                           'x-pattern': 'readPretty',
                         },
                       },

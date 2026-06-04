@@ -20,12 +20,18 @@ import { getOpenViewStepParams } from '../flows/openViewFlow';
 import { FlowRoute } from '../FlowPage';
 import { RouteModel } from '../models/base/RouteModel';
 
+const routeSwitchMock = vi.hoisted(() => ({
+  active: true,
+  currentRoute: { name: 'testRoute' } as Record<string, unknown>,
+  refresh: () => undefined,
+}));
+
 // mock 路由相关 hooks
 vi.mock('../../route-switch', () => ({
-  useCurrentRoute: () => ({ name: 'testRoute' }),
-  useKeepAlive: () => ({ active: true }),
+  useCurrentRoute: () => routeSwitchMock.currentRoute,
+  useKeepAlive: () => ({ active: routeSwitchMock.active }),
   useMobileLayout: () => ({ isMobileLayout: true }),
-  useAllAccessDesktopRoutes: () => ({ refresh: vi.fn() }),
+  useAllAccessDesktopRoutes: () => ({ refresh: routeSwitchMock.refresh }),
 }));
 
 vi.mock('../resolveViewParamsToViewList', () => ({
@@ -53,6 +59,9 @@ const mockGetOpenViewStepParams = vi.mocked(getOpenViewStepParams);
 describe('FlowRoute', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    routeSwitchMock.active = true;
+    routeSwitchMock.currentRoute = { name: 'testRoute' };
+    routeSwitchMock.refresh = vi.fn();
     mockResolveViewParamsToViewList.mockReturnValue([]);
     mockGetViewDiffAndUpdateHidden.mockReturnValue({ viewsToClose: [], viewsToOpen: [] });
     mockGetOpenViewStepParams.mockReturnValue({} as any);
@@ -130,5 +139,156 @@ describe('FlowRoute', () => {
 
     const viewParams = mockResolveViewParamsToViewList.mock.calls[0][1];
     expect(removeSpy).toHaveBeenCalledWith(viewParams[0].viewUid);
+  });
+
+  it('drops configured associationName during route replay when sourceId is absent', async () => {
+    const engine = new FlowEngine();
+    engine.registerModels({ RouteModel });
+    const routeName = 'test-route';
+    engine.context.defineProperty('route', {
+      value: {
+        params: { name: routeName },
+        pathname: '/admin/popup/filterbytk/member',
+      },
+    });
+
+    const dispatchEvent = vi.fn(() => Promise.resolve());
+    const viewItem = {
+      params: { viewUid: 'popup', filterByTk: 'member' },
+      modelUid: 'popup',
+      model: { uid: 'popup', dispatchEvent } as any,
+      hidden: { value: false },
+      index: 0,
+    };
+
+    mockResolveViewParamsToViewList.mockReturnValue([viewItem]);
+    mockGetViewDiffAndUpdateHidden.mockReturnValue({
+      viewsToClose: [],
+      viewsToOpen: [viewItem],
+    });
+    mockGetOpenViewStepParams.mockReturnValue({
+      collectionName: 'roles',
+      associationName: 'users.roles',
+      dataSourceKey: 'main',
+    } as any);
+
+    render(
+      <FlowEngineProvider engine={engine}>
+        <MemoryRouter initialEntries={[`/flow/${routeName}`]}>
+          <Routes>
+            <Route path="/flow/:name" element={<FlowRoute />} />
+          </Routes>
+        </MemoryRouter>
+      </FlowEngineProvider>,
+    );
+
+    await waitFor(() => {
+      expect(dispatchEvent).toHaveBeenCalled();
+    });
+
+    expect(dispatchEvent.mock.calls[0][1]).toMatchObject({
+      collectionName: 'roles',
+      associationName: null,
+      dataSourceKey: 'main',
+      filterByTk: 'member',
+      triggerByRouter: true,
+    });
+  });
+
+  it('keeps configured associationName during route replay when sourceId is present', async () => {
+    const engine = new FlowEngine();
+    engine.registerModels({ RouteModel });
+    const routeName = 'test-route';
+    engine.context.defineProperty('route', {
+      value: {
+        params: { name: routeName },
+        pathname: '/admin/popup/filterbytk/member/sourceid/1',
+      },
+    });
+
+    const dispatchEvent = vi.fn(() => Promise.resolve());
+    const viewItem = {
+      params: { viewUid: 'popup', filterByTk: 'member', sourceId: '1' },
+      modelUid: 'popup',
+      model: { uid: 'popup', dispatchEvent } as any,
+      hidden: { value: false },
+      index: 0,
+    };
+
+    mockResolveViewParamsToViewList.mockReturnValue([viewItem]);
+    mockGetViewDiffAndUpdateHidden.mockReturnValue({
+      viewsToClose: [],
+      viewsToOpen: [viewItem],
+    });
+    mockGetOpenViewStepParams.mockReturnValue({
+      collectionName: 'roles',
+      associationName: 'users.roles',
+      dataSourceKey: 'main',
+    } as any);
+
+    render(
+      <FlowEngineProvider engine={engine}>
+        <MemoryRouter initialEntries={[`/flow/${routeName}`]}>
+          <Routes>
+            <Route path="/flow/:name" element={<FlowRoute />} />
+          </Routes>
+        </MemoryRouter>
+      </FlowEngineProvider>,
+    );
+
+    await waitFor(() => {
+      expect(dispatchEvent).toHaveBeenCalled();
+    });
+
+    expect(dispatchEvent.mock.calls[0][1]).toMatchObject({
+      collectionName: 'roles',
+      associationName: 'users.roles',
+      dataSourceKey: 'main',
+      filterByTk: 'member',
+      sourceId: '1',
+      triggerByRouter: true,
+    });
+  });
+
+  it('refreshes engine currentRoute when a cached route becomes active again', async () => {
+    const engine = new FlowEngine();
+    engine.registerModels({ RouteModel });
+    const routeName = 'test-route';
+    const cachedRoute = { id: 'route-a', enableTabs: true };
+    const otherRoute = { id: 'route-b', enableTabs: false };
+    routeSwitchMock.currentRoute = cachedRoute;
+    engine.context.defineProperty('route', {
+      value: {
+        params: { name: routeName },
+        pathname: '/admin/test-view',
+      },
+    });
+
+    const renderFlowRoute = () => (
+      <FlowEngineProvider engine={engine}>
+        <MemoryRouter initialEntries={[`/flow/${routeName}`]}>
+          <Routes>
+            <Route path="/flow/:name" element={<FlowRoute />} />
+          </Routes>
+        </MemoryRouter>
+      </FlowEngineProvider>
+    );
+
+    const { rerender } = render(renderFlowRoute());
+
+    await waitFor(() => {
+      expect(engine.context.currentRoute).toBe(cachedRoute);
+    });
+
+    routeSwitchMock.active = false;
+    rerender(renderFlowRoute());
+    engine.context.defineProperty('currentRoute', { value: otherRoute });
+
+    routeSwitchMock.active = true;
+    rerender(renderFlowRoute());
+
+    await waitFor(() => {
+      expect(engine.context.currentRoute).toBe(cachedRoute);
+    });
   });
 });

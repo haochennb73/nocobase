@@ -139,7 +139,9 @@ export class AIEmployee {
     userMessages?: AIMessageInput[];
     userDecisions?: UserDecision[];
   }) {
-    const { provider, model, service } = await this.getLLMService();
+    const { provider, model, service } = await this.plugin.aiManager.getLLMService({
+      ...this.model,
+    });
     const { historyMessages, tools, middleware, config, state } = await this.initSession({
       messageId,
       provider,
@@ -227,51 +229,6 @@ export class AIEmployee {
       this.ctx.log.error(err);
       throw err;
     }
-  }
-
-  // === LLM/provider setup ===
-  async getLLMService() {
-    // model is required - it's set by the frontend ModelSwitcher
-    if (!this.model?.llmService || !this.model?.model) {
-      throw new Error('LLM service not configured');
-    }
-
-    const llmServiceName = this.model.llmService;
-    const model = this.model.model;
-
-    // Build model options from model
-    const modelOptions: Record<string, any> = {
-      llmService: llmServiceName,
-      model,
-    };
-
-    if (this.webSearch === true) {
-      modelOptions.builtIn = { webSearch: true };
-    }
-
-    const service = await this.db.getRepository('llmServices').findOne({
-      filter: {
-        name: llmServiceName,
-      },
-    });
-
-    if (!service) {
-      throw new Error('LLM service not found');
-    }
-
-    const providerOptions = this.plugin.aiManager.llmProviders.get(service.provider);
-    if (!providerOptions) {
-      throw new Error('LLM service provider not found');
-    }
-
-    const Provider = providerOptions.provider;
-    const provider = new Provider({
-      app: this.ctx.app,
-      serviceOptions: service.options,
-      modelOptions,
-    });
-
-    return { provider, model, service };
   }
 
   // === Agent wiring & execution ===
@@ -374,23 +331,27 @@ export class AIEmployee {
     let isReasoning = false;
     let gathered: any;
     signal.addEventListener('abort', async () => {
-      if (gathered?.type === 'ai') {
-        const values = convertAIMessage({
-          aiEmployee: this,
-          providerName,
-          model,
-          aiMessage: gathered,
-        });
-        if (values) {
-          values.metadata.interrupted = true;
-        }
-
-        await this.aiChatConversation.withTransaction(async (conversation, transaction) => {
-          const result: AIMessage = await conversation.addMessages(values);
-          if (toolCalls?.length) {
-            await this.initToolCall(transaction, result.messageId, toolCalls as any);
+      try {
+        if (gathered?.type === 'ai') {
+          const values = convertAIMessage({
+            aiEmployee: this,
+            providerName,
+            model,
+            aiMessage: gathered,
+          });
+          if (values) {
+            values.metadata.interrupted = true;
           }
-        });
+
+          await this.aiChatConversation.withTransaction(async (conversation, transaction) => {
+            const result: AIMessage = await conversation.addMessages(values);
+            if (toolCalls?.length) {
+              await this.initToolCall(transaction, result.messageId, toolCalls as any);
+            }
+          });
+        }
+      } catch (e) {
+        this.logger.error('Fail to save message after conversation abort', gathered);
       }
     });
 
@@ -613,21 +574,25 @@ export class AIEmployee {
       },
     });
 
-    let systemMessage = await parseVariables(this.ctx, this.employee.about ?? this.employee.defaultPrompt ?? '');
-    const dataSourceMessage = this.getEmployeeDataSourceContext();
-    if (dataSourceMessage) {
-      systemMessage = `${systemMessage}\n${dataSourceMessage}`;
-    }
+    const about = await parseVariables(this.ctx, this.employee.about ?? this.employee.defaultPrompt ?? '');
 
     let background = '';
     if (this.systemMessage) {
       background = await parseVariables(this.ctx, this.systemMessage);
+    }
+    const dataSourceMessage = this.getEmployeeDataSourceContext();
+    if (dataSourceMessage) {
+      background = `${background}\n${dataSourceMessage}`;
     }
 
     const aiMessages = await this.aiChatConversation.listMessages();
     const workContextBackground = await this.plugin.workContextHandler.background(this.ctx, aiMessages);
     if (workContextBackground?.length) {
       background = `${background}\n${workContextBackground.join('\n')}`;
+    }
+    const addSystemPrompt = userMessages?.filter((it) => it.role == 'system');
+    if (addSystemPrompt.length) {
+      background = `${background}\n${addSystemPrompt.map((it) => it.content).join('\n')}`;
     }
 
     let knowledgeBase;
@@ -648,13 +613,12 @@ export class AIEmployee {
     const systemPrompt = getSystemPrompt({
       aiEmployee: {
         nickname: this.employee.nickname,
-        about: this.employee.about ?? this.employee.defaultPrompt,
+        about,
       },
       task: {
         background,
       },
       personal: userConfig?.prompt,
-      dataSources: dataSourceMessage,
       environment: {
         database: this.db.sequelize.getDialect(),
         locale: this.ctx.getCurrentLocale() || 'en-US',
@@ -693,8 +657,8 @@ If information is missing, clearly state it in the summary.</Important>`;
           vectorStoreConfig.vectorStoreProvider,
           [
             {
-              key: 'vectorStoreConfigId',
-              value: vectorStoreConfig.vectorStoreConfigId,
+              key: 'vectorStoreConfigKey',
+              value: vectorStoreConfig.vectorStoreConfigKey ?? '',
             },
           ],
         );
@@ -708,23 +672,20 @@ If information is missing, clearly state it in the summary.</Important>`;
         });
         queryResult = [...queryResult, ...result];
       } else if (knowledgeBaseType === 'READONLY') {
-        for (const knowledgeBase of knowledgeBaseList) {
-          const vectorStoreService = await vectorStoreProvider.createVectorStoreService(
-            vectorStoreConfig.vectorStoreProvider,
-            [
-              ...knowledgeBase.vectorStoreProps,
-              {
-                key: 'vectorStoreConfigId',
-                value: vectorStoreConfig.vectorStoreConfigId,
-              },
-            ],
-          );
-          const result = await vectorStoreService.search(queryString, {
-            topK,
-            score,
-          });
-          queryResult = [...queryResult, ...result];
-        }
+        const vectorStoreService = await vectorStoreProvider.createVectorStoreService(
+          vectorStoreConfig.vectorStoreProvider,
+          [
+            {
+              key: 'vectorStoreConfigKey',
+              value: vectorStoreConfig.vectorStoreConfigKey ?? '',
+            },
+          ],
+        );
+        const result = await vectorStoreService.search(queryString, {
+          topK,
+          score,
+        });
+        queryResult = [...queryResult, ...result];
       } else if (knowledgeBaseType === 'EXTERNAL') {
         for (const knowledgeBase of knowledgeBaseList) {
           const vectorStoreService = await vectorStoreProvider.createVectorStoreService(
@@ -760,11 +721,11 @@ If information is missing, clearly state it in the summary.</Important>`;
   }
 
   async getKnowledgeBaseGroup(): Promise<KnowledgeBaseGroup[]> {
-    const { knowledgeBaseIds } = this.employee.knowledgeBase ?? {};
-    if (!knowledgeBaseIds || _.isEmpty(knowledgeBaseIds)) {
+    const { knowledgeBaseKeys } = this.employee.knowledgeBase ?? {};
+    if (!knowledgeBaseKeys || _.isEmpty(knowledgeBaseKeys)) {
       return [];
     }
-    return await this.plugin.features.knowledgeBase.getKnowledgeBaseGroup(knowledgeBaseIds);
+    return await this.plugin.features.knowledgeBase.getKnowledgeBaseGroup(knowledgeBaseKeys);
   }
 
   // === Tool calls ===
@@ -956,7 +917,9 @@ If information is missing, clearly state it in the summary.</Important>`;
       return;
     }
 
-    const { model, service } = await this.getLLMService();
+    const { model, service } = await this.plugin.aiManager.getLLMService({
+      ...this.model,
+    });
     const toolCallMap = await this.getToolCallMap(messageId);
     const now = new Date();
     const toolMessageContent = 'The user ignored the application for tools usage and will continued to ask questions';
@@ -1050,7 +1013,6 @@ If information is missing, clearly state it in the summary.</Important>`;
   private async formatMessages({ messages, provider }: { messages: AIMessageInput[]; provider: LLMProvider }) {
     const formattedMessages = [];
     const workContextHandler = this.plugin.workContextHandler;
-    await this.hydrateAttachmentsMeta(messages);
 
     // 截断过长的内容
     const truncate = (text: string, maxLen = 50000) => {
@@ -1087,7 +1049,7 @@ If information is missing, clearly state it in the summary.</Important>`;
         const contentBlocks = [];
         if (attachments?.length) {
           for (const attachment of attachments) {
-            const parsed = await provider.parseAttachment(this.ctx, attachment);
+            const parsed = await provider.parseAttachment(this.ctx, attachment as any);
             if (parsed.placement === 'system') {
               formattedMessages.push({
                 role: 'system',
@@ -1141,51 +1103,6 @@ If information is missing, clearly state it in the summary.</Important>`;
     return formattedMessages;
   }
 
-  private async hydrateAttachmentsMeta(messages: AIMessageInput[]) {
-    type AttachmentWithMeta = { id?: string | number; meta?: unknown };
-    const attachmentIds = new Set<string | number>();
-
-    for (const message of messages) {
-      if (!message.attachments?.length) {
-        continue;
-      }
-      for (const attachment of message.attachments as AttachmentWithMeta[]) {
-        if (attachment?.id != null) {
-          attachmentIds.add(attachment.id);
-        }
-      }
-    }
-
-    if (!attachmentIds.size) {
-      return;
-    }
-
-    const files = await this.aiFilesModel.findAll({
-      where: {
-        id: {
-          [Op.in]: Array.from(attachmentIds),
-        },
-      },
-      attributes: ['id', 'meta'],
-    });
-    const metaById = new Map(files.map((file) => [file.get('id') as string | number, file.get('meta')]));
-
-    for (const message of messages) {
-      if (!message.attachments?.length) {
-        continue;
-      }
-      for (const attachment of message.attachments as AttachmentWithMeta[]) {
-        if (attachment?.id == null) {
-          continue;
-        }
-        const meta = metaById.get(attachment.id);
-        if (meta !== undefined) {
-          attachment.meta = meta;
-        }
-      }
-    }
-  }
-
   private async getToolCallMap(messageId: string): Promise<
     Map<
       string,
@@ -1232,6 +1149,10 @@ If information is missing, clearly state it in the summary.</Important>`;
 
   private async getAIEmployeeTools() {
     const tools: ToolsEntry[] = await this.listTools({ scope: 'GENERAL' });
+    if (this.webSearch === true) {
+      const subAgentWebSearch = await this.toolsManager.getTools('subAgentWebSearch');
+      tools.push(subAgentWebSearch);
+    }
     const generalToolsNameSet = new Set(tools.map((x) => x.definition.name));
     const toolMap = await this.getToolsMap();
     const skills = this.employee.skillSettings?.skills ?? [];

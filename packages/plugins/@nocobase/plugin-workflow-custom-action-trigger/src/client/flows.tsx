@@ -15,6 +15,16 @@ import React, { useCallback } from 'react';
 import { CONTEXT_TYPE, EVENT_TYPE, NAMESPACE } from '../common/constants';
 import { ContextDataJsonInput } from './components';
 
+const customActionDescription = `{{t('Workflow will be triggered directly once the button clicked, without data saving. Only supports to be bound with "Custom action event".', { ns: "${NAMESPACE}" })}}`;
+
+function matchWorkflowContextType(config?: { type?: number | null } | null, contextType?: number | null) {
+  const configType = config?.type;
+  if (contextType === CONTEXT_TYPE.GLOBAL || contextType == null) {
+    return configType === CONTEXT_TYPE.GLOBAL || configType == null;
+  }
+  return configType === contextType;
+}
+
 export class FormTriggerWorkflowActionModel extends FormActionModel {
   defaultProps: ButtonProps = {
     title: tExpr('Trigger workflow', { ns: NAMESPACE }),
@@ -39,6 +49,7 @@ FormTriggerWorkflowActionModel.registerFlow({
         filter: {
           type: EVENT_TYPE,
         },
+        description: customActionDescription,
         optionFilter({ config }) {
           return config.type === CONTEXT_TYPE.SINGLE_RECORD;
         },
@@ -48,10 +59,12 @@ FormTriggerWorkflowActionModel.registerFlow({
           ctx.message.error(
             ctx.t('Button is not configured properly, please contact the administrator.', { ns: NAMESPACE }),
           );
+          ctx.exit();
           return;
         }
 
         if (!ctx.blockModel) {
+          ctx.exit();
           return;
         }
 
@@ -68,7 +81,6 @@ FormTriggerWorkflowActionModel.registerFlow({
               data: values,
             });
           });
-          ctx.message.success(ctx.t('Operation succeeded'));
           ctx.model.setProps('loading', false);
         } catch (error) {
           ctx.model.setProps('loading', false);
@@ -77,10 +89,12 @@ FormTriggerWorkflowActionModel.registerFlow({
         } finally {
           ctx.model.setProps('loading', false);
         }
-
-        if (ctx.view) {
-          ctx.view.close();
-        }
+      },
+    },
+    afterSuccess: {
+      use: 'afterSuccess',
+      defaultParams: {
+        successMessage: tExpr('Operation succeeded'),
       },
     },
   },
@@ -111,6 +125,7 @@ RecordTriggerWorkflowActionModel.registerFlow({
         filter: {
           type: EVENT_TYPE,
         },
+        description: customActionDescription,
         optionFilter({ config }) {
           return config.type === CONTEXT_TYPE.SINGLE_RECORD;
         },
@@ -118,12 +133,14 @@ RecordTriggerWorkflowActionModel.registerFlow({
       async handler(ctx, params) {
         const { resource, collection } = ctx.blockModel;
         if (!resource || !collection) {
+          ctx.exit();
           return;
         }
         if (!params.group?.length) {
           ctx.message.error(
             ctx.t('Button is not configured properly, please contact the administrator.', { ns: NAMESPACE }),
           );
+          ctx.exit();
           return;
         }
         try {
@@ -135,10 +152,17 @@ RecordTriggerWorkflowActionModel.registerFlow({
               filterByTk: getRecordKey(ctx.record, collection),
             },
           });
-          ctx.message.success(ctx.t('Operation succeeded'));
         } catch (error) {
           console.error('Error triggering workflows:', error);
+          ctx.exit();
         }
+      },
+    },
+    afterSuccess: {
+      use: 'afterSuccess',
+      defaultParams: {
+        successMessage: tExpr('Operation succeeded'),
+        actionAfterSuccess: 'previous',
       },
     },
   },
@@ -175,7 +199,7 @@ function CollectionActionWorkflowSelectComponent({ ...props }) {
   const optionFilter = useCallback(
     ({ config }) => {
       const { type } = model.stepParams.customCollectionTriggerWorkflowsActionSettings.setContextType;
-      return (type && config.type === type) || !config.type;
+      return matchWorkflowContextType(config, type);
     },
     [model.stepParams.customCollectionTriggerWorkflowsActionSettings.setContextType],
   );
@@ -219,14 +243,17 @@ CollectionTriggerWorkflowActionModel.registerFlow({
     triggerWorkflows: {
       title: `{{t('Bind workflows', { ns: 'workflow' })}}`,
       uiSchema: (ctx) => {
+        const { type } = ctx.model.stepParams.customCollectionTriggerWorkflowsActionSettings?.setContextType ?? {};
         const baseSchema = createTriggerWorkflowsSchema({
           WorkflowSelectComponent: CollectionActionWorkflowSelectComponent,
           filter: {
             type: EVENT_TYPE,
           },
           usingContext: false,
+          description: type
+            ? `{{t('Only support custom action workflow with context type set to "Multiple records".', { ns: "${NAMESPACE}" })}}`
+            : `{{t('Only support custom action workflow with context type set to "Custom context".', { ns: "${NAMESPACE}" })}}`,
         })(ctx);
-        const { type } = ctx.model.stepParams.customCollectionTriggerWorkflowsActionSettings?.setContextType ?? {};
         if (!type) {
           return {
             ...baseSchema,
@@ -260,16 +287,19 @@ CollectionTriggerWorkflowActionModel.registerFlow({
           ctx.message.error(
             ctx.t('Button is not configured properly, please contact the administrator.', { ns: NAMESPACE }),
           );
+          ctx.exit();
           return;
         }
         if (type === CONTEXT_TYPE.MULTIPLE_RECORDS) {
           if (!ctx.blockModel?.resource) {
             ctx.message.error(ctx.t('No resource selected for deletion'));
+            ctx.exit();
             return;
           }
           const resource = ctx.blockModel.resource as MultiRecordResource;
           if (resource.getSelectedRows().length === 0) {
             ctx.message.warning(ctx.t('Please select at least one record.', { ns: NAMESPACE }));
+            ctx.exit();
             return;
           }
           try {
@@ -284,9 +314,10 @@ CollectionTriggerWorkflowActionModel.registerFlow({
             resource.setSelectedRows([]);
           } catch (error) {
             console.error('Error triggering workflows:', error);
+            ctx.exit();
             return;
           }
-        } else if (type === CONTEXT_TYPE.GLOBAL) {
+        } else if (!type) {
           let values;
           if (contextData) {
             try {
@@ -308,13 +339,19 @@ CollectionTriggerWorkflowActionModel.registerFlow({
             });
           } catch (error) {
             console.error('Error triggering workflows:', error);
+            ctx.exit();
             return;
           }
         } else {
           throw new Error('Invalid context type');
         }
-
-        ctx.message.success(ctx.t('Operation succeeded'));
+      },
+    },
+    afterSuccess: {
+      use: 'afterSuccess',
+      defaultParams: {
+        successMessage: tExpr('Operation succeeded'),
+        actionAfterSuccess: 'previous',
       },
     },
   },
@@ -347,8 +384,9 @@ function globalTriggerWorkflowUiSchema(ctx) {
     filter: {
       type: EVENT_TYPE,
     },
+    description: `{{t('Only support custom action workflow with context type set to "Custom context".', { ns: "${NAMESPACE}" })}}`,
     optionFilter({ config }) {
-      return config.type === CONTEXT_TYPE.GLOBAL;
+      return matchWorkflowContextType(config, CONTEXT_TYPE.GLOBAL);
     },
     usingContext: false,
   })(ctx);
@@ -402,6 +440,13 @@ CollectionGlobalTriggerWorkflowActionModel.registerFlow({
       uiSchema: globalTriggerWorkflowUiSchema,
       handler: globalTriggerWorkflowHandler,
     },
+    afterSuccess: {
+      use: 'afterSuccess',
+      defaultParams: {
+        successMessage: tExpr('Operation succeeded'),
+        actionAfterSuccess: 'previous',
+      },
+    },
   },
 });
 
@@ -417,6 +462,13 @@ WorkbenchTriggerWorkflowActionModel.registerFlow({
       title: `{{t('Bind workflows', { ns: 'workflow' })}}`,
       uiSchema: globalTriggerWorkflowUiSchema,
       handler: globalTriggerWorkflowHandler,
+    },
+    afterSuccess: {
+      use: 'afterSuccess',
+      defaultParams: {
+        successMessage: tExpr('Operation succeeded'),
+        actionAfterSuccess: 'previous',
+      },
     },
   },
 });

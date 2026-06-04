@@ -12,7 +12,7 @@ pkg: '@nocobase/plugin-workflow-javascript'
 
 JavaScript 스크립트 노드는 사용자가 워크플로우 내에서 사용자 정의 서버 측 JavaScript 스크립트를 실행할 수 있도록 합니다. 스크립트에서는 워크플로우 상위 노드의 변수를 매개변수로 사용할 수 있으며, 스크립트의 반환 값은 하위 노드에서 사용할 수 있습니다.
 
-스크립트는 NocoBase 애플리케이션의 서버에서 워커 스레드를 열어 실행되며, Node.js의 대부분 기능을 지원합니다. 하지만 네이티브 실행 환경과는 일부 차이가 있으니, 자세한 내용은 [기능 목록](#기능-목록)을 참조하십시오.
+스크립트는 NocoBase 애플리케이션의 서버에서 워커 스레드를 열어 실행됩니다. 기본적으로 보안 샌드박스(isolated-vm)를 사용하며, `require`나 Node.js 내장 API를 지원하지 않습니다. 자세한 내용은 [실행 엔진](#실행-엔진) 및 [기능 목록](#기능-목록)을 참조하십시오.
 
 ## 노드 생성
 
@@ -48,15 +48,32 @@ JavaScript 스크립트 노드는 사용자가 워크플로우 내에서 사용�
 스크립트에 오류가 발생하면 반환 값이 없으며, 노드의 결과는 오류 메시지로 채워집니다. 만약 이후 노드에서 스크립트 노드의 결과 변수를 사용한다면, 신중하게 처리해야 합니다.
 :::
 
-## 기능 목록
+## 실행 엔진
 
-### Node.js 버전
+JavaScript 스크립트 노드는 두 가지 실행 엔진을 지원하며, `WORKFLOW_SCRIPT_MODULES` 환경 변수의 설정 여부에 따라 자동으로 선택됩니다.
 
-메인 애플리케이션에서 실행되는 Node.js 버전과 동일합니다.
+### 안전 모드 (기본값)
 
-### 모듈 지원
+`WORKFLOW_SCRIPT_MODULES`가 **설정되지 않은** 경우, 스크립트는 [isolated-vm](https://github.com/laverdet/isolated-vm) 엔진을 사용하여 실행됩니다. 이 엔진은 격리된 V8 환경에서 코드를 실행하며, 다음과 같은 특성을 가집니다:
 
-스크립트에서는 제한적으로 모듈을 사용할 수 있습니다. CommonJS와 동일하게, 코드에서 `require()` 지시어를 사용하여 모듈을 가져옵니다.
+- `require`를 **지원하지 않습니다** — 모듈을 가져올 수 없습니다
+- Node.js 내장 API(`process`, `Buffer`, `global` 등)를 **지원하지 않습니다**
+- ECMAScript 표준 내장 객체(`JSON`, `Math`, `Promise`, `Date` 등)만 사용 가능합니다
+- 매개변수를 통한 데이터 전달, `console` 로그 출력, `async`/`await`를 지원합니다
+
+이것은 권장되는 기본 모드로, 순수 연산 및 데이터 처리 로직에 적합하며 최고 수준의 보안 격리를 제공합니다.
+
+### 비안전 모드 (모듈 지원)
+
+`WORKFLOW_SCRIPT_MODULES`가 **설정된** 경우, 스크립트는 `require` 기능을 사용하기 위해 Node.js 내장 `vm` 엔진으로 전환됩니다.
+
+:::warning{title="보안 경고"}
+비안전 모드는 CommonJS `require` 지원을 제공하기 위해서만 Node.js `vm`을 사용합니다. Node.js `vm` 모듈은 보안 샌드박스 메커니즘이 아닙니다. 이 모드를 활성화하면 워크플로우 스크립트를 편집, 테스트 또는 실행할 수 있는 모든 사용자를 NocoBase 서버 권한으로 코드를 실행할 수 있는 사용자로 신뢰하는 것을 의미합니다.
+
+`WORKFLOW_SCRIPT_MODULES`는 보안 경계나 권한 모델이 아닙니다. 스크립트 코드가 실행되기 전에 `require()`가 허용할 모듈 이름만 제어합니다.
+:::
+
+스크립트에서 CommonJS와 동일하게 `require()` 지시어를 사용하여 모듈을 가져올 수 있습니다.
 
 Node.js 네이티브 모듈과 `node_modules`에 설치된 모듈(NocoBase에서 이미 사용 중인 의존성 패키지 포함)을 지원합니다. 코드에서 사용할 모듈은 애플리케이션 환경 변수 `WORKFLOW_SCRIPT_MODULES`에 선언해야 하며, 여러 패키지 이름은 반각 쉼표로 구분합니다. 예를 들어:
 
@@ -65,7 +82,7 @@ WORKFLOW_SCRIPT_MODULES=crypto,timers,lodash,dayjs
 ```
 
 :::info{title="참고"}
-환경 변수 `WORKFLOW_SCRIPT_MODULES`에 선언되지 않은 모듈은 Node.js 네이티브 모듈이거나 `node_modules`에 이미 설치되어 있더라도 스크립트에서 **사용할 수 없습니다**. 이 정책은 운영 단계에서 사용자가 사용할 수 있는 모듈 목록을 관리하고, 특정 시나리오에서 스크립트 권한이 과도하게 높아지는 것을 방지하는 데 사용될 수 있습니다.
+환경 변수 `WORKFLOW_SCRIPT_MODULES`에 선언되지 않은 모듈은 Node.js 네이티브 모듈이거나 `node_modules`에 이미 설치되어 있더라도 `require()`로 직접 가져올 수 **없습니다**. 이 목록은 지원되는 import를 설정하기 위한 용도로만 사용됩니다. 스크립트 권한을 낮추거나 신뢰 수준이 낮은 사용자에게 스크립트 편집 권한을 안전하게 위임하기 위해 이 목록에 의존하지 마세요.
 :::
 
 소스 코드 배포 환경이 아닌 경우, 특정 모듈이 `node_modules`에 설치되어 있지 않다면, 필요한 패키지를 `storage` 디렉터리에 수동으로 설치할 수 있습니다. 예를 들어 `exceljs` 패키지를 사용해야 할 때 다음과 같이 실행할 수 있습니다.
@@ -81,12 +98,18 @@ npm i --no-save --no-package-lock --prefix . exceljs
 WORKFLOW_SCRIPT_MODULES=./storage/node_modules/exceljs
 ```
 
-그러면 스크립트에서 `exceljs` 패키지를 사용할 수 있습니다.
+그러면 스크립트에서 `exceljs` 패키지를 사용할 수 있습니다(`require`에서 사용하는 이름은 환경 변수에 정의된 이름과 정확히 일치해야 합니다):
 
 ```js
-const ExcelJS = require('exceljs');
+const ExcelJS = require('./storage/node_modules/exceljs');
 // ...
 ```
+
+## 기능 목록
+
+### Node.js 버전
+
+메인 애플리케이션에서 실행되는 Node.js 버전과 동일합니다.
 
 ### 전역 변수
 
@@ -133,7 +156,7 @@ return value;
 
 ### 타이머
 
-`setTimeout`, `setInterval`, `setImmediate` 등의 메서드를 사용하려면, Node.js의 `timers` 패키지를 통해 가져와야 합니다.
+`setTimeout`, `setInterval`, `setImmediate` 등의 메서드를 사용하려면, Node.js의 `timers` 패키지를 통해 가져와야 합니다(비안전 모드에서만 사용 가능).
 
 ```js
 const { setTimeout, setInterval, setImmediate, clearTimeout, clearInterval, clearImmediate } = require('timers');

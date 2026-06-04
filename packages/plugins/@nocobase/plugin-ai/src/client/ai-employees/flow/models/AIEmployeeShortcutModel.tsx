@@ -7,12 +7,13 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Avatar, Spin, Popover, Card, Tag, Select, Switch, Alert } from 'antd';
-import { FlowModel, tExpr, useFlowSettingsContext, observer } from '@nocobase/flow-engine';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Avatar, Spin, Popover, Card, Tag, Select, Switch, Typography } from 'antd';
+import { FlowModel, tExpr, useFlowSettingsContext, observer, useFlowContext } from '@nocobase/flow-engine';
 import { avatars } from '../../avatars';
 import { AIEmployee, TriggerTaskOptions, ContextItem as ContextItemType } from '../../types';
 import { useChatBoxActions } from '../../chatbox/hooks/useChatBoxActions';
+import { useChatMessageActions } from '../../chatbox/hooks/useChatMessageActions';
 import { ProfileCard } from '../../ProfileCard';
 import { RemoteSelect, TextAreaWithContextSelector, useRequest, useToken } from '@nocobase/client';
 import { AddContextButton } from '../../AddContextButton';
@@ -23,7 +24,6 @@ import { dialogController } from '../../stores/dialog-controller';
 import { namespace } from '../../../locale';
 import { ContextItem as WorkContextItem } from '../../types';
 import { useChatMessagesStore } from '../../chatbox/stores/chat-messages';
-import { useChatConversationsStore } from '../../chatbox/stores/chat-conversations';
 import { useLLMServiceCatalog } from '../../../llm-services/hooks/useLLMServiceCatalog';
 import { useLLMProviders } from '../../../llm-services/llm-providers';
 import { useT } from '../../../locale';
@@ -56,6 +56,7 @@ const Shortcut: React.FC<ShortcutProps> = ({
   context,
   auto,
 }) => {
+  const ctx = useFlowContext();
   const { size, mask } = style;
   const [focus, setFocus] = useState(false);
   const aiConfigRepository = useAIConfigRepository();
@@ -67,8 +68,7 @@ const Shortcut: React.FC<ShortcutProps> = ({
 
   const { triggerTask } = useChatBoxActions();
   const addContextItems = useChatMessagesStore.use.addContextItems();
-
-  const setWebSearch = useChatConversationsStore.use.setWebSearch();
+  const { syncContextAttachments } = useChatMessageActions();
 
   const currentAvatar = useMemo(() => {
     const avatar = aiEmployee?.avatar;
@@ -86,6 +86,29 @@ const Shortcut: React.FC<ShortcutProps> = ({
       mask: mask !== false ? ['dark'] : undefined,
     });
   }, [aiEmployee, focus, showNotice, mask]);
+
+  const getShortcutContext = useCallback(() => {
+    const workContext = context.workContext ?? [];
+    if (!workContext.length) {
+      return workContext;
+    }
+    const nextWorkContext = workContext.filter((item) => {
+      if (item.type !== 'flow-model') {
+        return true;
+      }
+      return Boolean(ctx.engine.getModel(item.uid));
+    });
+    if (nextWorkContext.every((item) => item.type !== 'flow-model')) {
+      const parent = ctx.model.parent;
+      if (parent) {
+        nextWorkContext.push({
+          type: 'flow-model',
+          uid: parent.uid,
+        });
+      }
+    }
+    return nextWorkContext;
+  }, [ctx, context.workContext]);
 
   if (!aiEmployee) {
     return null;
@@ -109,7 +132,9 @@ const Shortcut: React.FC<ShortcutProps> = ({
           onClick={() => {
             triggerTask({ aiEmployee, tasks, auto });
             if (context?.workContext?.length) {
-              addContextItems(context.workContext);
+              const shortcutContext = getShortcutContext();
+              addContextItems(shortcutContext);
+              syncContextAttachments(shortcutContext);
             }
           }}
         />
@@ -286,7 +311,6 @@ const TaskWebSearchSwitch: React.FC = observer(() => {
 
   const supportWebSearch = selectedService?.supportWebSearch;
   const isDisabled = !!modelField?.value && supportWebSearch === false;
-  const showConflictWarning = !!field.value && !!selectedService?.isToolConflict;
 
   useEffect(() => {
     if (isDisabled && field.value) {
@@ -298,9 +322,6 @@ const TaskWebSearchSwitch: React.FC = observer(() => {
     <div>
       <Switch checked={!!field.value} disabled={isDisabled} onChange={(checked) => (field.value = checked)} />
       {isDisabled && <div style={{ marginTop: 8, color: 'rgba(0, 0, 0, 0.45)' }}>{t('Web search not supported')}</div>}
-      {showConflictWarning && (
-        <Alert style={{ marginTop: 8 }} type="warning" showIcon={true} message={t('Search disables tools')} />
-      )}
     </div>
   );
 });

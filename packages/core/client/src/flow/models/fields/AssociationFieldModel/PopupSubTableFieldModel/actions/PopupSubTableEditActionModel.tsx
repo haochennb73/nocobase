@@ -9,13 +9,14 @@
 
 import { tExpr, observable, useFlowContext, useFlowViewContext, FlowModelRenderer } from '@nocobase/flow-engine';
 import type { ButtonProps } from 'antd/es/button';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Button, Tooltip } from 'antd';
 import { useRequest } from 'ahooks';
 import { capitalize } from 'lodash';
 import { Icon } from '../../../../../../icon/Icon';
 import { ActionModel, ActionWithoutPermission } from '../../../../base/ActionModel';
 import { SkeletonFallback } from '../../../../../components/SkeletonFallback';
+import { bindPopupSubTableBeforeClose } from './popupSubTableBeforeClose';
 
 function FieldWithoutPermissionPlaceholder({ targetModel, children }) {
   const t = targetModel.context.t;
@@ -45,7 +46,11 @@ function RemoteModelRenderer({ options, fieldModel }) {
   const ctx = useFlowViewContext();
   const { data, loading } = useRequest(
     async () => {
-      const model: any = await ctx.engine.loadOrCreateModel(options, { delegateToParent: false, delegate: ctx });
+      const model: any = await ctx.engine.loadOrCreateModel(options, {
+        delegateToParent: false,
+        delegate: ctx,
+        skipSave: !ctx.flowSettingsEnabled,
+      });
       model.context.defineProperty('associationModel', {
         value: fieldModel.context.associationModel,
       });
@@ -56,6 +61,20 @@ function RemoteModelRenderer({ options, fieldModel }) {
       refreshDeps: [ctx, options],
     },
   );
+
+  useEffect(() => {
+    if (!data?.uid) {
+      return;
+    }
+
+    return bindPopupSubTableBeforeClose({
+      view: ctx.view,
+      model: data,
+      modal: ctx.modal,
+      t: ctx.t,
+    });
+  }, [ctx, data]);
+
   if (loading || !data?.uid) {
     return <SkeletonFallback style={{ margin: 16 }} />;
   }

@@ -8,41 +8,147 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PageModel } from '../PageModel';
-import { DragEndEvent } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
 
 // Mock FlowModel and other dependencies
 vi.mock('@nocobase/flow-engine', () => {
   const VIEW_ACTIVATED_VERSION = Symbol.for('__NOCOBASE_VIEW_ACTIVATED_VERSION__');
-  return {
-    FlowModel: class {
-      props: any;
-      context: any;
-      subModels: any = {};
-      constructor(options: any = {}) {
-        this.props = options.props || {};
-        this.context = options.context || {};
+
+  class GenericFlowModel {
+    props: any;
+    context: any;
+    stepParams: any;
+    subModels: any = {};
+    flowEngine: any;
+    uid?: string;
+    parentId?: string;
+
+    constructor(options: any = {}) {
+      this.props = options.props || {};
+      this.context = options.context || {};
+      this.stepParams = options.stepParams || {};
+      this.flowEngine = options.flowEngine;
+      this.uid = options.uid;
+      this.parentId = options.parentId;
+    }
+
+    onInit() {}
+    onMount() {}
+    onUnmount() {}
+
+    setProps(key: string, value: any) {
+      this.props[key] = value;
+    }
+
+    mapSubModels(key: string, callback: any) {
+      if (this.subModels[key]) {
+        return this.subModels[key].map(callback);
       }
-      onMount() {}
-      onUnmount() {}
-      setProps(key: string, value: any) {
-        this.props[key] = value;
-      }
-      mapSubModels(key: string, callback: any) {
-        if (this.subModels[key]) {
-          return this.subModels[key].map(callback);
-        }
-        return [];
-      }
-      static registerFlow() {}
+      return [];
+    }
+
+    addSubModel() {}
+    setSubModel() {}
+
+    serialize() {
+      return { flowRegistry: {} };
+    }
+
+    observerDispose() {}
+    invalidateFlowCache() {}
+
+    static registerFlow() {}
+    static registerEvents() {}
+    static define() {}
+    static bindModelToInterface() {}
+  }
+
+  const moduleExports = {
+    FlowModel: GenericFlowModel,
+    FlowContext: GenericFlowModel,
+    FlowRuntimeContext: GenericFlowModel,
+    FlowModelContext: GenericFlowModel,
+    FlowEngineContext: GenericFlowModel,
+    FlowEngine: GenericFlowModel,
+    MultiRecordResource: GenericFlowModel,
+    SingleRecordResource: GenericFlowModel,
+    DisplayItemModel: GenericFlowModel,
+    EditableItemModel: GenericFlowModel,
+    FilterableItemModel: GenericFlowModel,
+    ForkFlowModel: GenericFlowModel,
+    CollectionFieldModel: GenericFlowModel,
+    CollectionField: GenericFlowModel,
+    Collection: GenericFlowModel,
+    DataSource: GenericFlowModel,
+    ElementProxy: GenericFlowModel,
+    JSRunner: GenericFlowModel,
+    FlowRunJSContext: GenericFlowModel,
+    BindingOptions: GenericFlowModel,
+    ViewNavigation: GenericFlowModel,
+    ViewParam: GenericFlowModel,
+    IFlowModelRepository: GenericFlowModel,
+    ModelRenderMode: {},
+    DragOverlayConfig: {},
+    LayoutSlot: {},
+    ColumnInsertConfig: {},
+    ColumnEdgeConfig: {},
+    RowGapConfig: {},
+    EMPTY_COLUMN_UID: '__EMPTY_COLUMN_UID__',
+    ActionScene: {
+      DYNAMIC_EVENT_FLOW: 'DYNAMIC_EVENT_FLOW',
     },
     tExpr: (str: string) => str,
+    escapeT: (str: string) => str,
+    defineAction: (options: any) => options,
+    defineFlow: (options: any) => options,
+    observer: (component: any) => component,
+    observable: {
+      ref: (value: any) => value,
+    },
+    reaction: vi.fn(() => () => undefined),
+    useFlowContext: () => ({ model: {}, getPropertyMetaTree: () => [] }),
+    useFlowModel: () => ({}),
+    useFlowModelById: () => ({ context: {} }),
+    useFlowEngine: () => ({}),
+    useFlowSettingsContext: () => ({}),
+    useFlowEngineContext: () => ({}),
+    useFlowModelContext: () => ({}),
+    useFlowViewContext: () => ({}),
+    FlowSettingsContextProvider: ({ children }: any) => children,
+    FlowContextSelector: ({ children }: any) => children,
     DndProvider: ({ children }: any) => children,
+    FlowEngineProvider: ({ children }: any) => children,
+    FlowModelProvider: ({ children }: any) => children,
     AddSubModelButton: () => null,
     FlowSettingsButton: () => null,
     FlowModelRenderer: () => null,
+    FieldModelRenderer: () => null,
+    FormItem: () => null,
+    MobilePopup: ({ children }: any) => children,
     Droppable: ({ children }: any) => children,
     DragHandler: () => null,
+    buildSubModelItems: (...args: any[]) => args[0] ?? [],
+    largeField: (...args: any[]) => args[0],
+    pruneFilter: (value: any) => value,
+    jioToJoiSchema: () => ({
+      validate: (value: any) => ({ value }),
+    }),
+    createSafeWindow: () => window,
+    createSafeDocument: () => document,
+    createSafeNavigator: () => navigator,
+    isRunJSValue: () => false,
+    isVariableExpression: () => false,
+    normalizeRunJSValue: (value: any) => value,
+    runjsWithSafeGlobals: async (handler: any, ...args: any[]) => handler?.(...args),
+    parseCtxDateExpression: (value: any) => value,
+    setupRunJSContexts: () => undefined,
+    getRunJSScenesForContext: () => [],
+    getRunJSDocFor: () => '',
+    listSnippetsForContext: () => [],
+    extractUsedVariablePaths: () => [],
+    extractUsedVariablePathsFromRunJS: () => [],
+    createAssociationAwareObjectMetaFactory: () => ({}),
+    createAssociationSubpathResolver: () => () => undefined,
     getPageActive: (ctx: any) => ctx?.view?.inputArgs?.pageActive,
     parsePathnameToViewParams: (pathname: string) => {
       if (!pathname) return [];
@@ -68,30 +174,59 @@ vi.mock('@nocobase/flow-engine', () => {
     VIEW_ACTIVATED_EVENT: 'view:activated',
     DATA_SOURCE_DIRTY_EVENT: 'dataSource:dirty',
   };
+  return moduleExports;
 });
 
-vi.mock('antd', () => ({
-  Tabs: (props: any) => null,
+vi.mock('../../../components/ConditionBuilder', () => ({
+  ConditionBuilder: () => null,
+  commonConditionHandler: vi.fn(),
 }));
 
-vi.mock('@ant-design/icons', () => ({
-  PlusOutlined: () => null,
+vi.mock('../../../components/TextAreaWithContextSelector', () => ({
+  TextAreaWithContextSelector: () => null,
 }));
+
+vi.mock('../PageTabModel', () => ({
+  BasePageTabModel: class {},
+}));
+
+vi.mock('../index', () => ({}));
+vi.mock('../../../../index', () => ({}));
+
+vi.mock('antd', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('antd')>();
+  return {
+    ...actual,
+    Tabs: (props: any) => null,
+  };
+});
+
+vi.mock('@ant-design/icons', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ant-design/icons')>();
+  return {
+    ...actual,
+    PlusOutlined: () => null,
+  };
+});
 
 vi.mock('@ant-design/pro-layout', () => ({
   PageHeader: () => null,
 }));
 
 describe('PageModel', () => {
-  let pageModel: PageModel;
+  let PageModelClass: typeof import('../PageModel').PageModel;
+  let pageModel: InstanceType<typeof PageModelClass>;
   let mockDragEndEvent: DragEndEvent;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.resetModules();
     vi.clearAllMocks();
     document.title = '';
 
+    ({ PageModel: PageModelClass } = await import('../PageModel'));
+
     // Create PageModel instance
-    pageModel = new PageModel({});
+    pageModel = new PageModelClass({});
     // Initialize subModels
     (pageModel as any).subModels = {};
   });
@@ -181,7 +316,7 @@ describe('PageModel', () => {
       expect(tabsElement.props.activeKey).toBe('tab-from-props');
     });
 
-    it('should apply tabs root className in flow settings mode', () => {
+    it('should not apply tabs root className in flow settings mode anymore', () => {
       // @ts-ignore
       pageModel.context = {
         t: (str: string) => str,
@@ -192,8 +327,7 @@ describe('PageModel', () => {
       const result = pageModel.renderTabs() as any;
       const tabsElement = result.props.children;
 
-      expect(typeof tabsElement.props.className).toBe('string');
-      expect(tabsElement.props.className.length).toBeGreaterThan(0);
+      expect(tabsElement.props.className).toBeUndefined();
     });
 
     it('should not apply tabs root className in normal mode', () => {
@@ -253,11 +387,32 @@ describe('PageModel', () => {
 
       expect(tabsElement.props.tabBarExtraContent.right).toBe('custom-right');
     });
+
+    it('should inject default right spacing via tabBarExtraContent', () => {
+      // @ts-ignore
+      pageModel.context = {
+        t: (str: string) => str,
+        view: { navigation: null },
+        flowSettingsEnabled: false,
+        themeToken: { paddingLG: 24 },
+      } as any;
+
+      const result = pageModel.renderTabs() as any;
+      const tabsElement = result.props.children;
+      const rightExtraContent = tabsElement.props.tabBarExtraContent.right;
+
+      expect(rightExtraContent).toBeTruthy();
+      expect(rightExtraContent.props.style).toMatchObject({
+        display: 'inline-flex',
+        marginInlineEnd: 24,
+      });
+    });
   });
 
   describe('render header spacing with tabs', () => {
     it('should compact page header bottom spacing when tabs are enabled', () => {
       pageModel.props = {
+        routeId: 'route-1',
         displayTitle: true,
         enableTabs: true,
         title: 'Title',
@@ -276,6 +431,7 @@ describe('PageModel', () => {
 
     it('should keep original header style when tabs are disabled', () => {
       pageModel.props = {
+        routeId: 'route-1',
         displayTitle: true,
         enableTabs: false,
         title: 'Title',
@@ -286,6 +442,112 @@ describe('PageModel', () => {
       const result = pageModel.render() as any;
       const header = result.props.children[0];
 
+      expect(header.props.style).toEqual({ backgroundColor: 'var(--colorBgLayout)' });
+    });
+
+    it('should use desktop route enableTabs=false before flow model props', () => {
+      pageModel.props = {
+        routeId: 'route-1',
+        displayTitle: true,
+        enableTabs: true,
+        title: 'Title',
+        headerStyle: { backgroundColor: 'var(--colorBgLayout)' },
+      } as any;
+      (pageModel as any).context = {
+        currentRoute: {
+          id: 'route-1',
+          enableTabs: false,
+        },
+      };
+      pageModel.renderTabs = vi.fn(() => null);
+      pageModel.renderFirstTab = vi.fn(() => null);
+
+      const result = pageModel.render() as any;
+      const header = result.props.children[0];
+
+      expect(pageModel.renderTabs).not.toHaveBeenCalled();
+      expect(pageModel.renderFirstTab).toHaveBeenCalled();
+      expect(header.props.style).toEqual({ backgroundColor: 'var(--colorBgLayout)' });
+    });
+
+    it('should use desktop route enableTabs=true before flow model props', () => {
+      pageModel.props = {
+        routeId: 'route-1',
+        displayTitle: true,
+        enableTabs: false,
+        title: 'Title',
+        headerStyle: { backgroundColor: 'var(--colorBgLayout)' },
+      } as any;
+      (pageModel as any).context = {
+        currentRoute: {
+          id: 'route-1',
+          enableTabs: true,
+        },
+      };
+      pageModel.renderTabs = vi.fn(() => null);
+      pageModel.renderFirstTab = vi.fn(() => null);
+
+      const result = pageModel.render() as any;
+      const header = result.props.children[0];
+
+      expect(pageModel.renderTabs).toHaveBeenCalled();
+      expect(pageModel.renderFirstTab).not.toHaveBeenCalled();
+      expect(header.props.style).toMatchObject({
+        backgroundColor: 'var(--colorBgLayout)',
+        paddingBottom: 0,
+      });
+    });
+
+    it('should ignore stale desktop route enableTabs=false from another route', () => {
+      pageModel.props = {
+        routeId: 'route-1',
+        displayTitle: true,
+        enableTabs: true,
+        title: 'Title',
+        headerStyle: { backgroundColor: 'var(--colorBgLayout)' },
+      } as any;
+      (pageModel as any).context = {
+        currentRoute: {
+          id: 'route-2',
+          enableTabs: false,
+        },
+      };
+      pageModel.renderTabs = vi.fn(() => null);
+      pageModel.renderFirstTab = vi.fn(() => null);
+
+      const result = pageModel.render() as any;
+      const header = result.props.children[0];
+
+      expect(pageModel.renderTabs).toHaveBeenCalled();
+      expect(pageModel.renderFirstTab).not.toHaveBeenCalled();
+      expect(header.props.style).toMatchObject({
+        backgroundColor: 'var(--colorBgLayout)',
+        paddingBottom: 0,
+      });
+    });
+
+    it('should ignore stale desktop route enableTabs=true from another route', () => {
+      pageModel.props = {
+        routeId: 'route-1',
+        displayTitle: true,
+        enableTabs: false,
+        title: 'Title',
+        headerStyle: { backgroundColor: 'var(--colorBgLayout)' },
+      } as any;
+      (pageModel as any).context = {
+        currentRoute: {
+          id: 'route-2',
+          enableTabs: true,
+        },
+      };
+      pageModel.renderTabs = vi.fn(() => null);
+      pageModel.renderFirstTab = vi.fn(() => null);
+
+      const result = pageModel.render() as any;
+      const header = result.props.children[0];
+
+      expect(pageModel.renderTabs).not.toHaveBeenCalled();
+      expect(pageModel.renderFirstTab).toHaveBeenCalled();
       expect(header.props.style).toEqual({ backgroundColor: 'var(--colorBgLayout)' });
     });
   });
@@ -418,6 +680,27 @@ describe('PageModel', () => {
       await (pageModel as any).updateDocumentTitle();
 
       expect(document.title).toBe('Resolved tab doc title');
+    });
+
+    it('should use page documentTitle when desktop route disables tabs even if flow model enables tabs', async () => {
+      pageModel.props = { routeId: 'route-1', enableTabs: true, title: 'Route page title' } as any;
+      (pageModel as any).context.currentRoute = {
+        id: 'route-1',
+        enableTabs: false,
+      };
+      (pageModel as any).stepParams = {
+        pageSettings: {
+          general: {
+            documentTitle: 'Route page doc title',
+          },
+        },
+      };
+      (pageModel as any).context.resolveJsonTemplate = vi.fn(async () => 'Resolved route page doc title');
+
+      await (pageModel as any).updateDocumentTitle();
+
+      expect((pageModel as any).context.resolveJsonTemplate).toHaveBeenCalledWith('Route page doc title');
+      expect(document.title).toBe('Resolved route page doc title');
     });
 
     it('should fallback to tab title when active tab documentTitle is empty', async () => {

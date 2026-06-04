@@ -107,6 +107,18 @@ describe('ChildPageModel', () => {
       expect(mockFlowEngine.moveModel).toHaveBeenCalledWith('active-model-id', 'over-model-id');
     });
 
+    it('should ignore self-drop', async () => {
+      await childPageModel.handleDragEnd({
+        ...mockDragEndEvent,
+        over: {
+          ...(mockDragEndEvent.over as NonNullable<DragEndEvent['over']>),
+          id: 'active-model-id',
+        },
+      });
+
+      expect(mockFlowEngine.moveModel).not.toHaveBeenCalled();
+    });
+
     it('should handle case when over is null', async () => {
       const eventWithNullOver = {
         ...mockDragEndEvent,
@@ -144,6 +156,53 @@ describe('ChildPageModel', () => {
       render(element);
 
       expect(screen.getByRole('button', { name: 'back-button' })).toBeTruthy();
+    });
+  });
+
+  describe('render', () => {
+    it('should render back button when tabs are disabled in embed mode', () => {
+      mockUseFlowContext.mockReturnValue({
+        themeToken: { paddingLG: 16, paddingXS: 8 },
+        view: { type: 'embed', close: vi.fn() },
+      });
+
+      (childPageModel as any).props = {
+        displayTitle: false,
+        enableTabs: false,
+        tabBarStyle: { backgroundColor: 'var(--colorBgContainer)' },
+      };
+      (childPageModel as any).context = {
+        view: { type: 'embed' },
+        themeToken: { paddingXS: 8 },
+      };
+      (childPageModel as any).renderFirstTab = vi.fn(() => React.createElement('div', { 'data-testid': 'first-tab' }));
+
+      render(childPageModel.render());
+
+      expect(screen.getByRole('button', { name: 'back-button' })).toBeTruthy();
+      expect(screen.getByTestId('first-tab')).toBeTruthy();
+    });
+
+    it('should not render back button when tabs are disabled in non-embed mode', () => {
+      mockUseFlowContext.mockReturnValue({
+        themeToken: { paddingLG: 16, paddingXS: 8 },
+        view: { type: 'drawer', close: vi.fn() },
+      });
+
+      (childPageModel as any).props = {
+        displayTitle: false,
+        enableTabs: false,
+      };
+      (childPageModel as any).context = {
+        view: { type: 'drawer' },
+        themeToken: { paddingXS: 8 },
+      };
+      (childPageModel as any).renderFirstTab = vi.fn(() => React.createElement('div', { 'data-testid': 'first-tab' }));
+
+      render(childPageModel.render());
+
+      expect(screen.queryByRole('button', { name: 'back-button' })).toBeNull();
+      expect(screen.getByTestId('first-tab')).toBeTruthy();
     });
   });
 });

@@ -14,7 +14,7 @@ import dataOrganizer from '../ai-employees/built-in/data-organizer';
 import insightsAnalyst from '../ai-employees/built-in/insights-analyst';
 import researchAnalyst from '../ai-employees/built-in/research-analyst';
 import translator from '../ai-employees/built-in/translator';
-import nocobaseAssistant from '../ai-employees/built-in/nocobase-assistant';
+// import nocobaseAssistant from '../ai-employees/built-in/nocobase-assistant';
 import emailAssistant from '../ai-employees/built-in/email-assistant';
 import dataVisualization from '../ai-employees/built-in/data-visualization';
 import type { AIEmployee } from '../../collections/ai-employees';
@@ -24,7 +24,7 @@ const DEFAULT_LANGUAGE = 'en-US';
 const DEFAULT_KNOWLEDGE_BASE = {
   topK: 3,
   score: '0.6',
-  knowledgeBaseIds: [],
+  knowledgeBaseKeys: [],
 };
 const DEFAULT_KNOWLEDGE_BASE_PROMPT =
   "From knowledge base:\n{knowledgeBaseData}\nanswer user's question using this information.";
@@ -37,7 +37,7 @@ export class BuiltInManager {
     insightsAnalyst,
     researchAnalyst,
     translator,
-    nocobaseAssistant,
+    // nocobaseAssistant,
     emailAssistant,
     dataVisualization,
   ];
@@ -86,7 +86,8 @@ export class BuiltInManager {
     const setups = this.builtInEmployees.filter((x) => !existedUsername.includes(x.username));
     if (setups.length) {
       this.plugin.log.info('setup built-in employees');
-      for (const { username, description, profile, skillSettings } of setups) {
+      for (const employee of setups) {
+        const { username, description, profile, skillSettings } = employee;
         let p = profile[language];
         if (!p) {
           p = profile[DEFAULT_LANGUAGE];
@@ -110,6 +111,7 @@ export class BuiltInManager {
             knowledgeBasePrompt: DEFAULT_KNOWLEDGE_BASE_PROMPT,
             enabled: true,
             builtIn: true,
+            category: (employee as any)?.category ?? 'business',
           },
         });
         this.plugin.log.info(`setup [${username}] ${description}`);
@@ -122,7 +124,7 @@ export class BuiltInManager {
       const existedMap = new Map<string, any>(existed.map((it) => [it.username, it.toJSON()]));
       for (const { username, description, skillSettings } of updates) {
         let { skills } = existedMap.get(username)?.skillSettings ?? { skills: [] };
-        skills = skills.filter((s) => s.name?.startsWith('workflowCaller-'));
+        skills = (skills ?? []).filter((s) => s.name?.startsWith('workflowCaller-'));
         const mergedSkills = new Set([...skills, ...skillSettings.skills]);
         await aiEmployeesRepo.update({
           values: {

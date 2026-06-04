@@ -84,7 +84,10 @@ function forEachModelIncludingForks(engine: any, visitor: (model: any) => void) 
 
     const forks: any = model?.forks;
     if (forks && typeof forks.forEach === 'function') {
-      forks.forEach((fork: any) => visitor(fork));
+      forks.forEach((fork: any) => {
+        if (!fork || fork.disposed) return;
+        visitor(fork);
+      });
     }
   });
 }
@@ -163,6 +166,44 @@ export function getValidationNamePathsExcludingHiddenModels(blockModel: FormBloc
   if (!hiddenPaths.length) return names;
 
   return names.filter((namePath) => !hiddenPaths.some((hiddenPath) => isNamePathPrefix(hiddenPath, namePath)));
+}
+
+export function shouldSkipSubmitValidation(
+  model:
+    | {
+        getStepParams?: (flowKey: string, stepKey: string) => { skipValidator?: boolean } | undefined;
+      }
+    | null
+    | undefined,
+) {
+  return model?.getStepParams?.('submitSettings', 'skipRequiredValidation')?.skipValidator === true;
+}
+
+export async function validateSubmitForm(options: {
+  form?: { validateFields?: (nameList?: any) => Promise<any> } | null;
+  blockModel?: FormBlockModel | null;
+  flowSettingsEnabled?: boolean;
+  skipValidator?: boolean;
+}) {
+  const { form, blockModel, flowSettingsEnabled, skipValidator } = options;
+  if (skipValidator) {
+    return;
+  }
+
+  if (!form || typeof form.validateFields !== 'function') {
+    return;
+  }
+
+  const validateNamePaths =
+    flowSettingsEnabled && blockModel ? getValidationNamePathsExcludingHiddenModels(blockModel) : null;
+  if (Array.isArray(validateNamePaths)) {
+    if (validateNamePaths.length) {
+      await form.validateFields(validateNamePaths as any);
+    }
+    return;
+  }
+
+  await form.validateFields();
 }
 
 /**

@@ -27,9 +27,10 @@ import { css } from '@emotion/css';
 import { observer } from '@formily/reactive-react';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RecordPickerContent } from '../RecordPickerFieldModel';
+import { buildRecordPickerPopupContextInputArgs, RecordPickerContent } from '../RecordPickerFieldModel';
 import { AssociationFieldModel } from '../AssociationFieldModel';
 import { adjustColumnOrder } from '../../../blocks/table/utils';
+import { isSubTableColumnFieldComponentContext } from '../SubTableFieldModel/SubTableColumnModel';
 import { EditFormContent } from './actions/PopupSubTableEditActionModel';
 import { QuickEditFormModel } from '../../../blocks/form/QuickEditFormModel';
 import { ActionWithoutPermission } from '../../../base/ActionModel';
@@ -726,6 +727,7 @@ PopupSubTableFieldModel.registerFlow({
         const openMode = ctx.isMobileLayout ? 'embed' : ctx.inputArgs.mode || params.mode || 'drawer';
         const size = ctx.inputArgs.size || params.size || 'medium';
         ctx.model.selectedRows.value = ctx.model.props.value || [];
+        const currentItemValue = ctx.inputArgs.currentItemValue ?? ctx.model.props.value ?? [];
         ctx.viewer.open({
           type: openMode,
           width: sizeToWidthMap[openMode][size],
@@ -737,6 +739,9 @@ PopupSubTableFieldModel.registerFlow({
             dataSourceKey: ctx.collection.dataSourceKey,
             collectionName: ctx.collectionField?.target,
             collectionField: ctx.collectionField,
+            ...buildRecordPickerPopupContextInputArgs(ctx, {
+              currentItemValue,
+            }),
             rowSelectionProps: {
               type: 'checkbox',
               defaultSelectedRows: () => {
@@ -897,6 +902,9 @@ PopupSubTableFieldModel.define({
 EditableItemModel.bindModelToInterface('PopupSubTableFieldModel', ['m2m', 'o2m', 'mbm'], {
   order: 300,
   when: (ctx, field) => {
+    if (isSubTableColumnFieldComponentContext(ctx)) {
+      return false;
+    }
     if (field.targetCollection) {
       return field.targetCollection.template !== 'file';
     }

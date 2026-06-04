@@ -15,7 +15,7 @@ import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FormItemModel } from '../../blocks/form/FormItemModel';
 import { AssociationFieldModel } from './AssociationFieldModel';
-import { RecordPickerContent } from './RecordPickerFieldModel';
+import { buildRecordPickerPopupContextInputArgs, RecordPickerContent } from './RecordPickerFieldModel';
 import { ActionWithoutPermission } from '../../base/ActionModel';
 import {
   buildCurrentItemTitle,
@@ -213,6 +213,7 @@ const ArrayNester = ({
   const isConfigMode = !!model.context.flowSettingsEnabled;
   const { t } = useTranslation();
   const rowIndex = model.context.fieldIndex || [];
+  const parentFieldPathArray = (model?.parent as any)?.context?.fieldPathArray || [];
   // 用来缓存每行的 fork，保证每行只创建一次
   const forksRef = useRef<Record<string, any>>({});
   const collectionName = model.context.collectionField.name;
@@ -251,7 +252,7 @@ const ArrayNester = ({
               {displayFields.map((field: any, index) => {
                 const { key, name: fieldName, isDefault } = field;
                 const fieldIndex = [...rowIndex, `${collectionName}:${index}`];
-
+                const fieldPathArray = parentFieldPathArray;
                 // 每行只创建一次 fork
                 if (!forksRef.current[key]) {
                   const fork = gridModel.createFork({ disabled });
@@ -266,6 +267,11 @@ const ArrayNester = ({
 
                 currentFork.context.defineProperty('fieldIndex', {
                   get: () => fieldIndex,
+                  cache: false,
+                });
+                console.log(fieldPathArray);
+                currentFork.context.defineProperty('fieldPathArray', {
+                  get: () => fieldPathArray,
                   cache: false,
                 });
 
@@ -547,6 +553,7 @@ SubFormListFieldModel.registerFlow({
         const openMode = ctx.isMobileLayout ? 'embed' : ctx.inputArgs.mode || params.mode || 'drawer';
         const size = ctx.inputArgs.size || params.size || 'medium';
         ctx.model.selectedRows.value = ctx.model.props.value || [];
+        const currentItemValue = ctx.inputArgs.currentItemValue ?? ctx.model.props.value ?? [];
         ctx.viewer.open({
           type: openMode,
           width: sizeToWidthMap[openMode][size],
@@ -558,6 +565,9 @@ SubFormListFieldModel.registerFlow({
             dataSourceKey: ctx.collection.dataSourceKey,
             collectionName: ctx.collectionField?.target,
             collectionField: ctx.collectionField,
+            ...buildRecordPickerPopupContextInputArgs(ctx, {
+              currentItemValue,
+            }),
             rowSelectionProps: {
               type: 'checkbox',
               defaultSelectedRows: () => {

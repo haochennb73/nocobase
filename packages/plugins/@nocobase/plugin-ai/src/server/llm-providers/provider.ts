@@ -9,9 +9,9 @@
 
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { Model } from '@nocobase/database';
-import { PluginFileManagerServer } from '@nocobase/plugin-file-manager';
+import { AttachmentModel, PluginFileManagerServer } from '@nocobase/plugin-file-manager';
 import { Application } from '@nocobase/server';
-import axios from 'axios';
+import { checkUrlAgainstWhitelist, serverRequest } from '@nocobase/utils';
 import { AIChatContext } from '../types/ai-chat-conversation.type';
 import { encodeFile, parseResponseMessage, stripToolCallTags } from '../utils';
 import { EmbeddingsInterface } from '@langchain/core/embeddings';
@@ -22,6 +22,9 @@ import '@langchain/core/utils/stream';
 import { ToolsEntry } from '@nocobase/ai';
 import { LLMResult } from '@langchain/core/outputs';
 import { ContentBlock } from '@langchain/core/messages';
+import { CachedDocumentLoader, SUPPORTED_DOCUMENT_EXTNAMES } from '../document-loader';
+import path from 'node:path';
+import PluginAIServer from '../plugin';
 
 export type ParsedAttachmentResult = {
   placement: string;
@@ -34,6 +37,22 @@ export interface LLMProviderOptions {
   modelOptions?: Record<string, any>;
 }
 
+function normalizeBaseURL(baseURL: string): string {
+  checkUrlAgainstWhitelist(baseURL);
+  return new URL(baseURL).toString().replace(/\/$/, '');
+}
+
+function resolveServiceOptions(serviceOptions: Record<string, any> | undefined, app: Application) {
+  const rendered = app.environment.renderJsonTemplate(serviceOptions ?? {});
+  if (rendered?.baseURL != null) {
+    if (typeof rendered.baseURL !== 'string') {
+      throw new Error('baseURL must be a string');
+    }
+    rendered.baseURL = normalizeBaseURL(rendered.baseURL);
+  }
+  return rendered;
+}
+
 export abstract class LLMProvider {
   app: Application;
   serviceOptions: Record<string, any>;
@@ -42,14 +61,14 @@ export abstract class LLMProvider {
 
   abstract createModel(): BaseChatModel | any;
 
-  get baseURL() {
+  get baseURL(): string | null {
     return null;
   }
 
   constructor(opts: LLMProviderOptions) {
     const { app, serviceOptions, modelOptions } = opts;
     this.app = app;
-    this.serviceOptions = app.environment.renderJsonTemplate(serviceOptions);
+    this.serviceOptions = resolveServiceOptions(serviceOptions, app);
     if (modelOptions) {
       this.modelOptions = modelOptions;
       this.chatModel = this.createModel();
@@ -96,18 +115,19 @@ export abstract class LLMProvider {
   }> {
     const options = this.serviceOptions || {};
     const apiKey = options.apiKey;
-    let baseURL = options.baseURL || this.baseURL;
-    if (!baseURL) {
-      return { code: 400, errMsg: 'baseURL is required' };
+    let url: string;
+    try {
+      url = this.buildRequestURL('models');
+    } catch (e) {
+      return { code: 400, errMsg: e instanceof Error ? e.message : String(e) };
     }
     if (!apiKey) {
       return { code: 400, errMsg: 'API Key required' };
     }
-    if (baseURL && baseURL.endsWith('/')) {
-      baseURL = baseURL.slice(0, -1);
-    }
     try {
-      const res = await axios.get(`${baseURL}/models`, {
+      const res = await serverRequest({
+        method: 'GET',
+        url,
         headers: {
           Authorization: `Bearer ${apiKey}`,
         },
@@ -135,7 +155,34 @@ export abstract class LLMProvider {
     return stripToolCallTags(chunk);
   }
 
-  async parseAttachment(ctx: Context, attachment: any): Promise<ParsedAttachmentResult> {
+  async parseAttachment(ctx: Context, attachment: AttachmentModel): Promise<ParsedAttachmentResult> {
+    if (this.isApiSupportedAttachment(attachment)) {
+      return await this.convertToContent(ctx, attachment);
+    } else if (this.isDocumentLoaderSupportedAttachment(attachment)) {
+      return await this.loadDocument(ctx, attachment);
+    } else {
+      const safeFilename = attachment.filename ? path.basename(attachment.filename) : 'document';
+      return {
+        placement: 'system',
+        content: `The user has uploaded a ${attachment.mimetype} file (filename: ${safeFilename}). Please inform the user directly that you do not support parsing ${attachment.mimetype} content.`,
+      };
+    }
+  }
+
+  protected isApiSupportedAttachment(attachment: AttachmentModel): boolean {
+    const media = ['image/'];
+    const pdf = ['application/pdf'];
+    const supportedMedia = media.some((it) => attachment?.mimetype?.startsWith(it));
+    const supportedPdf = pdf.some((it) => attachment?.mimetype?.includes(it));
+    return supportedMedia || supportedPdf;
+  }
+
+  protected isDocumentLoaderSupportedAttachment(attachment: AttachmentModel): boolean {
+    const ext = path.extname(attachment?.filename ?? '').toLocaleLowerCase();
+    return SUPPORTED_DOCUMENT_EXTNAMES.includes(ext);
+  }
+
+  protected async convertToContent(ctx: Context, attachment: any): Promise<ParsedAttachmentResult> {
     const fileManager = this.app.pm.get('file-manager') as PluginFileManagerServer;
     const url = await fileManager.getFileURL(attachment);
     const data = await encodeFile(ctx, decodeURIComponent(url));
@@ -162,6 +209,36 @@ export abstract class LLMProvider {
         } as ContentBlock.Multimodal.File,
       } as ParsedAttachmentResult;
     }
+  }
+
+  protected async loadDocument(ctx: Context, attachment: any): Promise<any> {
+    const referer = ctx.get('referer') || '';
+    const ua = ctx.get('user-agent') || '';
+    const safeFilename = attachment.filename ? path.basename(attachment.filename) : 'document';
+    const parsed = await this.documentLoader.load(attachment, {
+      requestOptions: {
+        headers: {
+          Referer: referer,
+          'User-Agent': ua,
+        },
+      },
+    });
+    if (!parsed.supported) {
+      return {
+        placement: 'system',
+        content: `File ${safeFilename} is not a supported document type for text parsing.`,
+      };
+    }
+    if (parsed.text.length === 0) {
+      return {
+        placement: 'system',
+        content: `The file provided by the user is an empty file, file name is "${safeFilename}"`,
+      };
+    }
+    return {
+      placement: 'system',
+      content: `<parsed_document filename="${safeFilename}">\n${parsed.text}\n</parsed_document>`,
+    };
   }
 
   getStructuredOutputOptions(structuredOutput: AIChatContext['structuredOutput']): any {
@@ -239,6 +316,31 @@ export abstract class LLMProvider {
   parseResponseError(err) {
     return err?.message ?? 'Unexpected LLM service error';
   }
+
+  protected get documentLoader(): CachedDocumentLoader {
+    return this.aiPlugin.documentLoaders.cached;
+  }
+
+  protected getResolvedBaseURL(): string {
+    const baseURL = this.serviceOptions?.baseURL ?? this.baseURL;
+    if (!baseURL) {
+      throw new Error('baseURL is required');
+    }
+    if (typeof baseURL !== 'string') {
+      throw new Error('baseURL must be a string');
+    }
+    return normalizeBaseURL(baseURL);
+  }
+
+  protected buildRequestURL(pathname: string): string {
+    const url = new URL(pathname.replace(/^\/+/, ''), `${this.getResolvedBaseURL()}/`).toString();
+    checkUrlAgainstWhitelist(url);
+    return url;
+  }
+
+  protected get aiPlugin(): PluginAIServer {
+    return this.app.pm.get('ai');
+  }
 }
 
 export interface EmbeddingProviderOptions {
@@ -254,7 +356,7 @@ export abstract class EmbeddingProvider {
   constructor(protected opts: EmbeddingProviderOptions) {
     const { app, serviceOptions, modelOptions } = this.opts;
     this.app = app;
-    this.serviceOptions = app.environment.renderJsonTemplate(serviceOptions ?? {});
+    this.serviceOptions = resolveServiceOptions(serviceOptions, app);
     this.modelOptions = modelOptions;
   }
   abstract createEmbedding(): EmbeddingsInterface;
@@ -268,12 +370,15 @@ export abstract class EmbeddingProvider {
     return apiKey;
   }
 
-  protected get baseUrl() {
-    const baseUrl = this.serviceOptions?.baseUrl ?? this.getDefaultUrl();
-    if (!baseUrl) {
-      throw new Error('baseUrl is required');
+  protected get baseURL() {
+    const baseURL = this.serviceOptions?.baseURL ?? this.getDefaultUrl();
+    if (!baseURL) {
+      throw new Error('baseURL is required');
     }
-    return baseUrl;
+    if (typeof baseURL !== 'string') {
+      throw new Error('baseURL must be a string');
+    }
+    return normalizeBaseURL(baseURL);
   }
 
   protected get model() {

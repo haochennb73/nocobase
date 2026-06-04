@@ -20,12 +20,25 @@ server {
     client_max_body_size 0;
     access_log /var/log/nginx/nocobase.log apm;
 
+    include /etc/nginx/mime.types;
+    types { application/javascript mjs; }
+
     gzip on;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+    location ~* ^{{publicPath}}storage/uploads/(.*\.(?:htm|html|svg|svgz|xhtml))$ {
+        alias {{cwd}}/storage/uploads/$1;
+        add_header Cache-Control "public";
+        add_header Content-Disposition "attachment" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        access_log off;
+        autoindex off;
+    }
 
     location {{publicPath}}storage/uploads/ {
         alias {{cwd}}/storage/uploads/;
         add_header Cache-Control "public";
+        add_header X-Content-Type-Options "nosniff" always;
         access_log off;
         autoindex off;
     }

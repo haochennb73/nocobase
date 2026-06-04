@@ -4,11 +4,11 @@ pageType: home
 pageName: home
 
 hero:
-  name: وثائق NocoBase
-  text: تعلم NocoBase وأتقنه بسرعة
+  name: توثيق NocoBase
+  text: تعلّم NocoBase بسرعة واحترافية
   actions:
     - theme: brand
-      text: ابدأ الآن
+      text: البدء
       link: /get-started/how-nocobase-works
     - theme: alt
       text: GitHub
@@ -16,39 +16,39 @@ hero:
 
 features:
   - title: البدء
-    details: تعلم كيفية استخدام NocoBase واستكمل عملية التثبيت والنشر.
+    details: تعلّم كيفية استخدام NocoBase وإتمام التثبيت والنشر.
     items:
-      - title: دليل البدء مع NocoBase
-        details: تعرف على المفاهيم الأساسية والعمليات الرئيسية في NocoBase.
+      - title: البدء مع NocoBase
+        details: فهم المفاهيم الأساسية والعمليات الرئيسية في NocoBase.
         link: /get-started/how-nocobase-works
-      - title: التثبيت، الترقية، والنشر
-        details: قم بتثبيت NocoBase من البداية، وأكمل ترقية الإصدارات ونشرها في بيئة الإنتاج.
+      - title: التثبيت، الترقية والنشر
+        details: تثبيت NocoBase من البداية، تنفيذ الترقيات، ونشره في بيئة الإنتاج.
         link: /get-started/quickstart
       - title: تثبيت وترقية الإضافات
-        details: تعلم كيفية إضافة الإضافات وإدارتها وتحديثها لتوسيع قدرات النظام.
+        details: تعلّم كيفية إضافة وإدارة وتحديث الإضافات لتوسيع قدرات النظام.
         link: /get-started/install-upgrade-plugins
 
   - title: متقدم
-    details: تعمق في فهم مفاهيم NocoBase الأساسية، وأتقن قدرات التكوين والتطوير الرئيسية.
+    details: التعمق في مفاهيم NocoBase الأساسية وإتقان الإعدادات وإمكانيات التطوير.
     items:
       - title: المزيد...
-        details: استكشف المزيد من الوحدات الوظيفية.
+        details: استكشاف المزيد من وحدات الميزات.
         link: /guide
 
   - title: التطوير
-    details: يوفر قدرات غنية للتوسع والتكامل لمطوري NocoBase.
+    details: يوفر NocoBase إمكانيات قوية للتوسيع والتكامل للمطورين.
     items:
       - title: المزيد...
-        details: استكشف المزيد من الدروس التعليمية حول تطوير الإضافات.
+        details: استكشاف المزيد من دروس تطوير الإضافات.
         link: /development
 
   - title: الحلول
-    details: قوالب حلول صناعية مبنية على NocoBase.
+    details: قوالب حلول جاهزة مبنية على NocoBase لمختلف المجالات.
     items:
-      - title: حل نظام التذاكر
-        details: منصة تذاكر ذكية مدعومة بالذكاء الاصطناعي، تدعم الوصول متعدد القنوات وإدارة SLA وقاعدة المعرفة والمزيد.
+      - title: نظام التذاكر
+        details: منصة ذكية لإدارة التذاكر مدعومة بالذكاء الاصطناعي مع دعم قنوات متعددة، إدارة SLA، قاعدة معرفة وغيرها.
         link: /solution/ticket-system/
       - title: CRM (معاينة)
-        details: منصة إدارة علاقات عملاء مرنة بدون كود، تغطي العملاء والفرص والصفقات والطلبات والمزيد.
+        details: منصة مرنة لإدارة علاقات العملاء بدون كود تشمل العملاء، العملاء المحتملين، الفرص، الطلبات وغيرها.
         link: /solution/crm/
 ---

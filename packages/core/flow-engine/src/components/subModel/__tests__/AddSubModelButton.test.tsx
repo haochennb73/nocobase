@@ -188,6 +188,50 @@ describe('transformItems - searchable flags', () => {
     expect(submenu.searchPlaceholder).toBe('Search blocks');
     expect(Array.isArray(submenu.children)).toBe(true);
   });
+
+  it('filters searchable field menus by display label instead of item key', async () => {
+    const engine = new FlowEngine();
+    engine.flowSettings.forceEnable();
+    const parent = engine.createModel<FlowModel>({ use: FlowModel });
+    const user = userEvent.setup();
+
+    const items = [
+      {
+        key: 'fields',
+        label: '',
+        type: 'group' as const,
+        searchable: true,
+        searchPlaceholder: 'Search fields',
+        children: [
+          { key: 'field_name', label: 'Field display name' },
+          { key: 'other_field', label: 'Other field' },
+        ],
+      },
+    ];
+
+    render(
+      <FlowEngineProvider engine={engine}>
+        <ConfigProvider>
+          <App>
+            <AddSubModelButton model={parent} items={items as any} subModelKey="items">
+              Open
+            </AddSubModelButton>
+          </App>
+        </ConfigProvider>
+      </FlowEngineProvider>,
+    );
+
+    await user.click(screen.getByText('Open'));
+    const searchInput = await screen.findByPlaceholderText('Search fields');
+    expect(screen.getByText('Field display name')).toBeInTheDocument();
+
+    await user.type(searchInput, 'field_name');
+    await waitFor(() => expect(screen.queryByText('Field display name')).not.toBeInTheDocument());
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'display');
+    await waitFor(() => expect(screen.getByText('Field display name')).toBeInTheDocument());
+  });
 });
 
 describe('transformItems - hide', () => {
@@ -995,6 +1039,56 @@ describe('AddSubModelButton - toggle interactions', () => {
     const subModels = ((parent.subModels as any).items as FlowModel[]) || [];
     expect(subModels).toHaveLength(1);
   });
+
+  it('updates toggle state after external sub model removal', async () => {
+    const engine = new FlowEngine();
+    engine.flowSettings.forceEnable();
+
+    class ToggleParent extends FlowModel {}
+    class ToggleChild extends FlowModel {}
+
+    engine.registerModels({ ToggleParent, ToggleChild });
+    const parent = engine.createModel<ToggleParent>({ use: 'ToggleParent', uid: 'toggle-parent-external-remove' });
+    const existing = engine.createModel<ToggleChild>({ use: 'ToggleChild', uid: 'toggle-child-external-remove' });
+    parent.addSubModel('items', existing);
+
+    render(
+      <FlowEngineProvider engine={engine}>
+        <ConfigProvider>
+          <App>
+            <AddSubModelButton
+              model={parent}
+              subModelKey="items"
+              items={[
+                {
+                  key: 'toggle-child',
+                  label: 'Toggle Child',
+                  toggleable: true,
+                  useModel: 'ToggleChild',
+                  createModelOptions: { use: 'ToggleChild' },
+                },
+              ]}
+            >
+              Toggle Menu
+            </AddSubModelButton>
+          </App>
+        </ConfigProvider>
+      </FlowEngineProvider>,
+    );
+
+    await act(async () => {
+      await userEvent.click(screen.getByText('Toggle Menu'));
+    });
+
+    await waitFor(() => expect(screen.getByText('Toggle Child')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true'));
+
+    await act(async () => {
+      await existing.destroy();
+    });
+
+    await waitFor(() => expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false'));
+  });
 });
 
 // ========================
@@ -1092,6 +1186,7 @@ describe('AddSubModelButton toggleable behavior', () => {
       },
       { timeout: 3000 },
     );
+    await waitFor(() => expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true'));
 
     // dropdown should remain open and children should still be visible (no flicker / reload)
     expect(screen.getByText('Async Group')).toBeInTheDocument();
@@ -1108,6 +1203,7 @@ describe('AddSubModelButton toggleable behavior', () => {
 
     // ensure destroy has been called (avoid flakiness on exact call counts)
     await waitFor(() => {
+      expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false');
       expect(repo.destroy).toHaveBeenCalled();
     });
   });

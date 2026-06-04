@@ -158,7 +158,7 @@ export class FlowExecutor {
         const stepDefaultParams = await resolveDefaultParams(step.defaultParams, runtimeCtx);
         combinedParams = { ...stepDefaultParams };
       } else {
-        flowContext.logger.error(
+        flowContext.logger.warn(
           `BaseModel.applyFlow: Step '${stepKey}' in flow '${flowKey}' has neither 'use' nor 'handler'. Skipping.`,
         );
         continue;
@@ -519,6 +519,12 @@ export class FlowExecutor {
         result,
         ...(abortedByExitAll ? { aborted: true } : {}),
       });
+      if (result && typeof result === 'object') {
+        Object.defineProperty(result, '__abortedByExitAll', {
+          value: abortedByExitAll,
+          configurable: true,
+        });
+      }
       return result;
     } catch (error) {
       // 进入错误钩子并记录

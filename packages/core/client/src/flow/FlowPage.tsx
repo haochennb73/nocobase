@@ -28,6 +28,8 @@ import { getOpenViewStepParams } from './flows/openViewFlow';
 import { useDesignable } from '../schema-component';
 import { deviceType } from 'react-device-detect';
 
+const hasUsableSourceId = (sourceId: unknown) => sourceId !== undefined && sourceId !== null && String(sourceId) !== '';
+
 function InternalFlowPage({ uid, ...props }) {
   const model = useFlowModelById(uid);
   return (
@@ -137,17 +139,24 @@ export const FlowRoute = () => {
     routeModel.context.defineProperty('currentRoute', {
       get: () => currentRoute,
     });
-    // Also expose currentRoute on engine context so view-scoped engines
-    // can still read it for default title fallback.
-    flowEngine.context.defineProperty('currentRoute', {
-      get: () => currentRoute,
-    });
     routeModel.context.defineProperty('refreshDesktopRoutes', {
       get: () => refresh,
     });
   }, [routeModel, currentRoute, refresh, flowEngine]);
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+    // Also expose currentRoute on engine context so view-scoped engines
+    // can still read it for default title fallback.
+    flowEngine.context.defineProperty('currentRoute', {
+      get: () => currentRoute,
+    });
+  }, [active, currentRoute, flowEngine]);
+
+  useEffect(() => {
+    const viewState = viewStateRef.current;
     const dispose = reaction(
       () => flowEngine.context.route,
       (newRoute) => {
@@ -242,6 +251,10 @@ export const FlowRoute = () => {
                 const destroyRef = React.createRef<(result?: any, force?: boolean) => void>();
                 const updateRef = React.createRef<(value: any) => void>();
                 const openViewParams = getOpenViewStepParams(viewItem.model);
+                const associationName =
+                  openViewParams?.associationName && !hasUsableSourceId(viewItem.params.sourceId)
+                    ? null
+                    : openViewParams?.associationName;
                 const openerUids = viewList.slice(0, viewItem.index).map((item) => item.params.viewUid);
                 const navigation = new ViewNavigation(
                   flowEngine.context,
@@ -251,7 +264,7 @@ export const FlowRoute = () => {
                 viewItem.model.dispatchEvent('click', {
                   target: layoutContentRef.current,
                   collectionName: openViewParams?.collectionName,
-                  associationName: openViewParams?.associationName,
+                  associationName,
                   dataSourceKey: openViewParams?.dataSourceKey,
                   destroyRef,
                   updateRef,
@@ -304,7 +317,7 @@ export const FlowRoute = () => {
       dispose?.();
       prevViewListRef.current.forEach((viewItem) => {
         flowEngine.removeModelWithSubModels(viewItem.params.viewUid);
-        viewStateRef.current[getKey(viewItem)]?.destroy();
+        viewState[getKey(viewItem)]?.destroy();
       });
     };
   }, [flowEngine, isMobileLayout, routeModel]);
@@ -358,7 +371,7 @@ export const FlowPage = React.memo((props: FlowPageProps & Record<string, unknow
           },
         };
       }
-      const data = await flowEngine.loadOrCreateModel(options);
+      const data = await flowEngine.loadOrCreateModel(options, { skipSave: !flowEngine.context.flowSettingsEnabled });
       if (data?.uid && onModelLoaded) {
         data.context.addDelegate(ctx);
         data.removeParentDelegate();

@@ -10,7 +10,6 @@
 import { PlusOutlined } from '@ant-design/icons';
 import { PageHeader } from '@ant-design/pro-layout';
 import { DragEndEvent } from '@dnd-kit/core';
-import { css } from '@emotion/css';
 import { uid } from '@formily/shared';
 import {
   AddSubModelButton,
@@ -30,6 +29,7 @@ import {
 } from '@nocobase/flow-engine';
 import { Tabs } from 'antd';
 import React, { ReactNode } from 'react';
+import { commonConditionHandler, ConditionBuilder } from '../../../components/ConditionBuilder';
 import { TextAreaWithContextSelector } from '../../../components/TextAreaWithContextSelector';
 import { BasePageTabModel } from './PageTabModel';
 
@@ -39,11 +39,14 @@ type PageModelStructure = {
   };
 };
 
-const TABS_DESIGN_MODE_ROOT_CLASS_NAME = css`
-  > .ant-tabs-nav .ant-tabs-tab {
-    min-width: 54px;
-  }
-`;
+type CurrentRouteWithTabs = {
+  id?: string | number | null;
+  enableTabs?: boolean;
+};
+
+type PageModelContextWithRoute = {
+  currentRoute?: CurrentRouteWithTabs | null;
+};
 
 export class PageModel extends FlowModel<PageModelStructure> {
   tabBarExtraContent: { left?: ReactNode; right?: ReactNode } = {};
@@ -53,6 +56,23 @@ export class PageModel extends FlowModel<PageModelStructure> {
   private dirtyRefreshScheduled = false;
   private unmounted = false;
   private documentTitleUpdateVersion = 0;
+
+  /**
+   * 根页面标签页开关以路由表为准，避免 flow model 里的旧配置覆盖路由管理设置。
+   */
+  private getEnableTabs(): boolean {
+    const currentRoute = (this.context as PageModelContextWithRoute).currentRoute;
+    const routeId = this.props.routeId;
+    if (
+      routeId != null &&
+      currentRoute?.id != null &&
+      String(currentRoute.id) === String(routeId) &&
+      typeof currentRoute.enableTabs === 'boolean'
+    ) {
+      return currentRoute.enableTabs;
+    }
+    return !!this.props.enableTabs;
+  }
 
   private getActiveTabKey(): string | undefined {
     const viewParams = this.context.view?.navigation?.viewParams;
@@ -198,7 +218,7 @@ export class PageModel extends FlowModel<PageModelStructure> {
     };
 
     let nextTitle = '';
-    if (this.props.enableTabs) {
+    if (this.getEnableTabs()) {
       const activeTabKey = preferredActiveTabKey || this.getActiveTabKey();
       const activeTabModel = activeTabKey
         ? (this.flowEngine.getModel(activeTabKey) as BasePageTabModel | undefined)
@@ -298,7 +318,6 @@ export class PageModel extends FlowModel<PageModelStructure> {
 
   renderTabs() {
     const tabNavPaddingInlineStart = this.context.themeToken?.paddingLG ?? 16;
-    const rootClassName = this.context.flowSettingsEnabled ? TABS_DESIGN_MODE_ROOT_CLASS_NAME : undefined;
     const leftExtraContent =
       this.tabBarExtraContent.left !== undefined ? (
         this.tabBarExtraContent.left
@@ -309,25 +328,26 @@ export class PageModel extends FlowModel<PageModelStructure> {
       this.tabBarExtraContent.right !== undefined ? (
         this.tabBarExtraContent.right
       ) : (
-        <AddSubModelButton
-          model={this}
-          subModelKey={'tabs'}
-          items={[
-            {
-              key: 'blank',
-              label: this.context.t('Blank tab'),
-              createModelOptions: this.createPageTabModelOptions,
-            },
-          ]}
-        >
-          <FlowSettingsButton icon={<PlusOutlined />}>{this.context.t('Add tab')}</FlowSettingsButton>
-        </AddSubModelButton>
+        <span style={{ display: 'inline-flex', marginInlineEnd: tabNavPaddingInlineStart }}>
+          <AddSubModelButton
+            model={this}
+            subModelKey={'tabs'}
+            items={[
+              {
+                key: 'blank',
+                label: this.context.t('Blank tab'),
+                createModelOptions: this.createPageTabModelOptions,
+              },
+            ]}
+          >
+            <FlowSettingsButton icon={<PlusOutlined />}>{this.context.t('Add tab')}</FlowSettingsButton>
+          </AddSubModelButton>
+        </span>
       );
 
     return (
       <DndProvider onDragEnd={this.handleDragEnd.bind(this)}>
         <Tabs
-          className={rootClassName}
           activeKey={
             this.context.view?.navigation?.viewParams
               ? this.context.view.navigation.viewParams.tabUid || this.getFirstTab()?.uid
@@ -361,17 +381,65 @@ export class PageModel extends FlowModel<PageModelStructure> {
       headerStyle.paddingBlock = token.paddingSM;
       headerStyle.paddingInline = token.paddingLG;
     }
-    if (this.props.enableTabs) {
+    const enableTabs = this.getEnableTabs();
+    if (enableTabs) {
       headerStyle.paddingBottom = 0;
     }
     return (
       <>
         {this.props.displayTitle && <PageHeader title={this.props.title} style={headerStyle} />}
-        {this.props.enableTabs ? this.renderTabs() : this.renderFirstTab()}
+        {enableTabs ? this.renderTabs() : this.renderFirstTab()}
       </>
     );
   }
 }
+
+PageModel.registerEvents({
+  close: {
+    title: tExpr('Close'),
+    name: 'close',
+    hideInSettings(ctx) {
+      return !!ctx.view?.preventClose;
+    },
+    uiSchema: {
+      condition: {
+        type: 'object',
+        title: tExpr('Trigger condition'),
+        'x-decorator': 'FormItem',
+        'x-component': ConditionBuilder,
+      },
+    },
+    handler: commonConditionHandler,
+  },
+});
+
+PageModel.registerFlow({
+  key: 'closeGuard',
+  title: tExpr('Close guard'),
+  on: 'close',
+  steps: {
+    confirmUnsavedChanges: {
+      title: tExpr('Unsaved changes confirmation'),
+      async handler(ctx) {
+        if (!ctx.inputArgs?.dirty?.hasDirtyForms) {
+          return;
+        }
+
+        const confirmed = await ctx.modal.confirm({
+          title: ctx.t('Unsaved changes'),
+          content: ctx.t("Are you sure you don't want to save?"),
+          okText: ctx.t('Confirm'),
+          cancelText: ctx.t('Cancel'),
+        });
+
+        if (!confirmed) {
+          ctx.inputArgs?.controller?.prevent?.();
+          ctx.exitAll();
+        }
+      },
+    },
+  },
+});
 
 PageModel.registerFlow({
   key: 'pageSettings',

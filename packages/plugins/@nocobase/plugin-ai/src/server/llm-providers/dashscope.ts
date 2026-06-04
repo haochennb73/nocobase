@@ -18,6 +18,7 @@ import _ from 'lodash';
 import PluginAIServer from '../plugin';
 import path from 'node:path';
 import { ReasoningChatOpenAI } from './common/reasoning';
+import { AttachmentModel } from '@nocobase/plugin-file-manager';
 
 const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
@@ -29,7 +30,7 @@ export class DashscopeProvider extends LLMProvider {
   }
 
   createModel() {
-    const { baseURL, apiKey } = this.serviceOptions || {};
+    const { apiKey } = this.serviceOptions || {};
     const { responseFormat, structuredOutput } = this.modelOptions || {};
     const { schema } = structuredOutput || {};
 
@@ -53,18 +54,31 @@ export class DashscopeProvider extends LLMProvider {
       // enable platform's web search ability
       // ref: https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2867560
       modelKwargs['enable_search'] = true;
-      modelKwargs['search_options'] = { forced_search: true };
     }
 
     return new ReasoningChatOpenAI({
       apiKey,
+      topP: 0.8,
+      temperature: 0.7,
       ...this.modelOptions,
       modelKwargs,
       configuration: {
-        baseURL: baseURL || this.baseURL,
+        baseURL: this.getResolvedBaseURL(),
       },
       verbose: false,
     });
+  }
+
+  isToolConflict(): boolean {
+    return true;
+  }
+
+  resolveTools(toolDefinitions: any[]): any[] {
+    if (this.isToolConflict() && this.modelOptions?.builtIn?.webSearch === true) {
+      return [];
+    } else {
+      return toolDefinitions;
+    }
   }
 
   parseResponseMessage(message: Model) {
@@ -95,32 +109,8 @@ export class DashscopeProvider extends LLMProvider {
     return null;
   }
 
-  async parseAttachment(ctx: Context, attachment: any): Promise<any> {
-    if (!attachment?.mimetype || attachment.mimetype.startsWith('image/')) {
-      return super.parseAttachment(ctx, attachment);
-    }
-    const parsed = await this.aiPlugin.documentLoaders.cached.load(attachment);
-    const safeFilename = attachment.filename ? path.basename(attachment.filename) : 'document';
-    if (!parsed.supported) {
-      return {
-        placement: 'system',
-        content: `File ${safeFilename} is not a supported document type for text parsing.`,
-      };
-    }
-    if (parsed.text.length === 0) {
-      return {
-        placement: 'system',
-        content: `The file provided by the user is an empty file, file name is "${safeFilename}"`,
-      };
-    }
-    return {
-      placement: 'system',
-      content: `<parsed_document filename="${safeFilename}">\n${parsed.text}\n</parsed_document>`,
-    };
-  }
-
-  private get aiPlugin(): PluginAIServer {
-    return this.app.pm.get('ai');
+  protected isApiSupportedAttachment(attachment: AttachmentModel): boolean {
+    return attachment.mimetype?.startsWith('image/') ?? false;
   }
 }
 
@@ -132,7 +122,7 @@ export class DashscopeEmbeddingProvider extends EmbeddingProvider {
   createEmbedding(): EmbeddingsInterface {
     return new OpenAIEmbeddings({
       configuration: {
-        baseURL: this.baseUrl ?? '',
+        baseURL: this.baseURL,
         apiKey: this.apiKey,
       },
       model: this.model,
