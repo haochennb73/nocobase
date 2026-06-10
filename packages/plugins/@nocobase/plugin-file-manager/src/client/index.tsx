@@ -17,9 +17,9 @@ import { useAttachmentFieldProps, useFileCollectionStorageRules } from './hooks'
 import { useStorageCfg } from './hooks/useStorageUploadProps';
 import { AttachmentFieldInterface } from './interfaces/attachment';
 import { NAMESPACE } from './locale';
-import { DisplayPreviewFieldModel } from './models/DisplayPreviewFieldModel';
-import { UploadFieldModel } from './models/UploadFieldModel';
-import { UploadActionModel } from './models/UploadActionModel';
+import { DisplayPreviewFieldModel } from '../client-v2/models/DisplayPreviewFieldModel';
+import { UploadFieldModel } from '../client-v2/models/UploadFieldModel';
+import { UploadActionModel } from '../client-v2/models/UploadActionModel';
 import { FilePreviewRenderer, getDownloadFileName, getFileUrl, isPdfFile } from './previewer/filePreviewTypes';
 import { storageTypes } from './schemas/storageTypes';
 import { FileCollectionTemplate } from './templates';
@@ -187,6 +187,6 @@ export class PluginFileManagerClient extends Plugin {
 
 export { filePreviewTypes, wrapWithModalPreviewer } from './previewer/filePreviewTypes';
 export type { FilePreviewType, FilePreviewerProps } from './previewer/filePreviewTypes';
-export { CardUpload, UploadFieldModel } from './models/UploadFieldModel';
+export { CardUpload, UploadFieldModel } from '../client-v2/models/UploadFieldModel';
 
 export default PluginFileManagerClient;

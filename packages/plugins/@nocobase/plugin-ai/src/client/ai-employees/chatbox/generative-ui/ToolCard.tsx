@@ -15,6 +15,7 @@ import { jsonrepair } from 'jsonrepair';
 import { useToolCallActions } from '../hooks/useToolCallActions';
 import { useAIConfigRepository } from '../../../repositories/hooks/useAIConfigRepository';
 import { observer } from '@nocobase/flow-engine';
+import { useChatConversationsStore } from '../stores/chat-conversations';
 
 export const ToolCard: React.FC<{
   messageId: string;
@@ -45,7 +46,6 @@ export const ToolCard: React.FC<{
           toolCall.args = JSON.parse(repaired);
         } catch (err) {
           console.error(err, toolCall.args);
-          toolCall.args = {};
         }
       } else {
         toolCall.args = {};
@@ -54,6 +54,9 @@ export const ToolCard: React.FC<{
     const toolEntry = toolsMap.get(toolCall.name);
     const C = toolEntry?.ui?.card;
     if (C) {
+      if (typeof toolCall.args !== 'object' || toolCall.args === null) {
+        toolCall.args = {};
+      }
       toolsWithUI.push({
         C,
         messageId,
@@ -66,9 +69,10 @@ export const ToolCard: React.FC<{
     }
   }
 
+  const currentConversation = useChatConversationsStore.use.currentConversation();
   useEffect(() => {
-    aiConfigRepository.getAITools();
-  }, [aiConfigRepository]);
+    aiConfigRepository.getAITools(currentConversation);
+  }, [aiConfigRepository, currentConversation]);
 
   useEffect(() => {
     if (!messageId) {

@@ -34,7 +34,13 @@ const diagnosticHost: ts.FormatDiagnosticsHost = {
   getNewLine: () => ts.sys.newLine,
 };
 
+let cachedBaseCompilerOptions: ts.CompilerOptions | null = null;
+
 function loadCompilerOptions(): ts.CompilerOptions {
+  if (cachedBaseCompilerOptions) {
+    return { ...cachedBaseCompilerOptions };
+  }
+
   const configPath = path.join(ROOT_PATH, 'tsconfig.json');
   const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
   if (configFile.error) {
@@ -50,61 +56,13 @@ function loadCompilerOptions(): ts.CompilerOptions {
   const options: ts.CompilerOptions = {
     ...parsedConfig.options,
   };
+  // Remove paths so TypeScript resolves imports via node_modules (to built .d.ts files)
+  // instead of via tsconfig paths (to .ts source files). Keeping paths would cause TS6059
+  // errors because source files from other packages fall outside the current rootDir.
   delete options.paths;
-  // Inject aliases for packages without pre-built declarations.
-  // Prefer .d.ts (fast) over .ts (slow but always correct).
-  const tryInjectAlias = (pkgName: string, ...candidates: string[]) => {
-    for (const candidate of candidates) {
-      if (ts.sys.fileExists(candidate)) {
-        options.paths = { ...(options.paths || {}), [pkgName]: [candidate] };
-        return;
-      }
-    }
-  };
-  tryInjectAlias(
-    '@nocobase/client',
-    path.join(ROOT_PATH, 'packages/core/client/src/index.d.ts'),
-    path.join(ROOT_PATH, 'packages/core/client/src/index.ts'),
-  );
-  tryInjectAlias(
-    '@nocobase/flow-engine',
-    path.join(ROOT_PATH, 'packages/core/flow-engine/src/index.d.ts'),
-    path.join(ROOT_PATH, 'packages/core/flow-engine/src/index.ts'),
-  );
-  return options;
-}
 
-function createDeclarationCompilerHost(options: ts.CompilerOptions, declarationDir: string): ts.CompilerHost {
-  const host = ts.createCompilerHost(options);
-  // Redirect .ts/.tsx → .d.ts when a sibling .d.ts exists (performance: avoids compiling source).
-  host.resolveModuleNames = (moduleNames, containingFile, reusedNames, redirectedReference, compilerOptions) => {
-    return moduleNames.map((moduleName) => {
-      const resolved = ts.resolveModuleName(moduleName, containingFile, compilerOptions, host, undefined, redirectedReference)
-        .resolvedModule;
-      if (!resolved) {
-        return resolved;
-      }
-      if (/\.(?:cts|mts|ts|tsx)$/.test(resolved.resolvedFileName)) {
-        const dtsFile = resolved.resolvedFileName.replace(/\.(?:cts|mts|ts|tsx)$/, '.d.ts');
-        if (host.fileExists(dtsFile)) {
-          return {
-            ...resolved,
-            resolvedFileName: dtsFile,
-            extension: ts.Extension.Dts,
-          };
-        }
-      }
-      return resolved;
-    });
-  };
-  // Only write declarations for the plugin's own files (skip external package files).
-  const origWriteFile = host.writeFile;
-  host.writeFile = (fileName, data, writeByteOrderMark, onError, sourceFiles) => {
-    if (path.normalize(fileName).startsWith(path.normalize(declarationDir) + path.sep)) {
-      origWriteFile(fileName, data, writeByteOrderMark, onError, sourceFiles);
-    }
-  };
-  return host;
+  cachedBaseCompilerOptions = Object.freeze({ ...options });
+  return { ...cachedBaseCompilerOptions };
 }
 
 export const buildDeclaration = async (cwd: string, targetDir: string) => {
@@ -130,8 +88,19 @@ export const buildDeclaration = async (cwd: string, targetDir: string) => {
     rootDir: srcPath,
   } satisfies ts.CompilerOptions;
 
-  const compilerHost = createDeclarationCompilerHost(compilerOptions, targetPath);
-  const program = ts.createProgram(files, compilerOptions, compilerHost);
+const host = ts.createCompilerHost(compilerOptions);
+  const originalDirectoryExists = host.directoryExists?.bind(host);
+  const rootPrefix = ROOT_PATH.endsWith(path.sep) ? ROOT_PATH : ROOT_PATH + path.sep;
+  host.directoryExists = (dirPath: string) => {
+    // Prevent module resolution from walking up to parent node_modules
+    const resolved = path.resolve(dirPath);
+    if (resolved !== ROOT_PATH && !resolved.startsWith(rootPrefix) && resolved.includes(`${path.sep}node_modules`)) {
+      return false;
+    }
+    return originalDirectoryExists ? originalDirectoryExists(dirPath) : ts.sys.directoryExists(dirPath);
+  };
+
+  const program = ts.createProgram(files, compilerOptions, host);
   const emitResult = program.emit(undefined, undefined, undefined, true);
   const allDiagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics);
   // Only report diagnostics for the plugin's own source files.
