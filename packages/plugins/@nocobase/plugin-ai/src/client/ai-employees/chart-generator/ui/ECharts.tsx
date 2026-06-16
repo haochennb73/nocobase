@@ -42,8 +42,14 @@ const ErrorFallback: React.FC<{ error: Error }> = ({ error }) => {
             variant="link"
             color="primary"
             onClick={() => {
-              navigator.clipboard.writeText(error.message);
-              message.success(t('Copied'));
+              if (navigator.clipboard?.writeText) {
+                navigator.clipboard
+                  .writeText(error.message)
+                  .then(() => {
+                    message.success(t('Copied'));
+                  })
+                  .catch(() => {});
+              }
             }}
           />
         </>

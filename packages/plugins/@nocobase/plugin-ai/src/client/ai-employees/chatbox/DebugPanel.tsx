@@ -87,11 +87,15 @@ const LogItem: React.FC<LogItemProps> = ({ log, expanded, onToggleExpand }) => {
   };
 
   const handleCopy = () => {
-    try {
-      navigator.clipboard.writeText(JSON.stringify(log.data, null, 2));
-      message.success('Copied to clipboard');
-    } catch {
-      message.error('Failed to copy');
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(JSON.stringify(log.data, null, 2))
+        .then(() => {
+          message.success('Copied to clipboard');
+        })
+        .catch(() => {
+          message.error('Failed to copy');
+        });
     }
   };
 

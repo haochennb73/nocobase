@@ -41,8 +41,16 @@ export const Code = (props: any) => {
     .replace(/\n$/, '');
   const { message: antdMessage } = App.useApp();
   const copy = () => {
-    navigator.clipboard.writeText(value);
-    antdMessage.success(t('Copied'));
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(value)
+        .then(() => {
+          antdMessage.success(t('Copied'));
+        })
+        .catch(() => {
+          antdMessage.error(t('Copy failed'));
+        });
+    }
   };
 
   let isFullText = true;

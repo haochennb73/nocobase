@@ -169,8 +169,16 @@ export const AIMessage: React.FC<{
     fontSize: token.fontSizeSM,
   };
   const copy = () => {
-    navigator.clipboard.writeText(msg.content);
-    message.success(t('Copied'));
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(msg.content)
+        .then(() => {
+          message.success(t('Copied'));
+        })
+        .catch(() => {
+          message.error(t('Copy failed'));
+        });
+    }
   };
 
   const currentEmployee = useChatBoxStore.use.currentEmployee();
@@ -275,8 +283,16 @@ export const UserMessage: React.FC<{
   const { startEditingMessage } = useChatMessageActions();
 
   const copy = () => {
-    navigator.clipboard.writeText(msg.content);
-    message.success(t('Copied'));
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(msg.content)
+        .then(() => {
+          message.success(t('Copied'));
+        })
+        .catch(() => {
+          message.error(t('Copy failed'));
+        });
+    }
   };
   const items = msg.attachments?.map((item, index) => ({
     uid: index.toString(),
