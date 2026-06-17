@@ -452,6 +452,7 @@ export const TaskMessage: React.FC<{
 
   const taskVariables = useChatBoxStore.use.taskVariables();
   const currentEmployee = useChatBoxStore.use.currentEmployee();
+  const setRequireTaskSelection = useChatBoxStore.use.setRequireTaskSelection();
 
   const { triggerTask } = useChatBoxActions();
 
@@ -470,13 +471,14 @@ export const TaskMessage: React.FC<{
             height: 'auto',
           }}
           variant="outlined"
-          onClick={() =>
+          onClick={() => {
+            setRequireTaskSelection(false);
             triggerTask({
               aiEmployee: currentEmployee,
               tasks: [task],
               ...taskVariables,
-            })
-          }
+            });
+          }}
         >
           <div>{task.title}</div>
         </Button>

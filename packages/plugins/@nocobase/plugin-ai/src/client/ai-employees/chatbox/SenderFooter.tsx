@@ -29,6 +29,7 @@ export const SenderFooter: React.FC<{
   const currentConversation = useChatConversationsStore.use.currentConversation();
   const chat = useChat(currentConversation);
   const readonly = useChatBoxStore.use.readonly();
+  const requireTaskSelection = useChatBoxStore.use.requireTaskSelection();
 
   const loading = chat.use.responseLoading();
   const addContextItems = chat.addContextItems;
@@ -56,7 +57,7 @@ export const SenderFooter: React.FC<{
     }
   }, [senderRef, senderValue, contextItems]);
 
-  const disabled = !currentEmployee || readonly;
+  const disabled = !currentEmployee || readonly || requireTaskSelection;
 
   return (
     <Flex justify="space-between" align="center">

@@ -27,6 +27,7 @@ const useSendMessage = () => {
   const isEditingMessage = useChatBoxStore.use.isEditingMessage();
   const editingMessageId = useChatBoxStore.use.editingMessageId();
   const setShowSenderHint = useChatBoxStore.use.setShowSenderHint();
+  const requireTaskSelection = useChatBoxStore.use.requireTaskSelection();
 
   const currentConversation = useChatConversationsStore.use.currentConversation();
   const chat = useChat(currentConversation);
@@ -41,6 +42,9 @@ const useSendMessage = () => {
 
   const { send } = useChatBoxActions();
   const handleSubmit = (content: string) => {
+    if (requireTaskSelection) {
+      return;
+    }
     setShowSenderHint(false);
     send({
       sessionId: currentConversation,
@@ -85,6 +89,7 @@ export const Sender: React.FC = () => {
   const setShowSenderHint = useChatBoxStore.use.setShowSenderHint();
   const setSenderRef = useChatBoxStore.use.setSenderRef();
   const readonly = useChatBoxStore.use.readonly();
+  const requireTaskSelection = useChatBoxStore.use.requireTaskSelection();
 
   const setAttachments = chat.setAttachments;
   const uploadProps = useUploadFiles();
@@ -216,8 +221,8 @@ export const Sender: React.FC = () => {
         header={<SenderHeader />}
         loading={responseLoading}
         footer={({ components }) => <SenderFooter components={components} handleSubmit={handleSubmit} />}
-        disabled={!currentEmployee || readonly}
-        placeholder={t('Enter your question')}
+        disabled={!currentEmployee || readonly || requireTaskSelection}
+        placeholder={requireTaskSelection ? t('Please select a task first') : t('Enter your question')}
         actions={false}
         autoSize={{ minRows: 2, maxRows: 8 }}
       />

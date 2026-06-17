@@ -23,6 +23,11 @@ import { useWorkflowTasksStore } from '../stores/workflow-tasks';
 import { useAPIClient } from '@nocobase/client';
 import { useAIConfigRepository } from '../../../repositories/hooks/useAIConfigRepository';
 import { getAIEmployeeModels, getAllModels, isSameModel, isValidModel, resolveModel } from '../model';
+import { isBuiltIn } from '../../built-in/utils';
+
+const TASK_TOPIC_CONSTRAINT = `
+[任务约束]
+你必须严格围绕以上任务背景内容回答问题。如果用户提问与任务背景无关，请礼貌拒绝并引导用户回到任务相关话题。不要回答与任务无关的任何问题。`;
 
 export const useChatBoxActions = () => {
   const api = useAPIClient();
@@ -40,6 +45,8 @@ export const useChatBoxActions = () => {
   const setCurrentEmployee = useChatBoxStore.use.setCurrentEmployee();
   const senderRef = useChatBoxStore.use.senderRef();
   const setModel = useChatBoxStore.use.setModel();
+  const setRequireTaskSelection = useChatBoxStore.use.setRequireTaskSelection();
+  const setLastTriggeredTasks = useChatBoxStore.use.setLastTriggeredTasks();
 
   const setCurrentConversation = useChatConversationsStore.use.setCurrentConversation();
   const currentConversation = useChatConversationsStore.use.currentConversation();
@@ -175,35 +182,15 @@ export const useChatBoxActions = () => {
     senderRef.current?.focus();
   }, [currentEmployee, setCurrentWorkflowTask]);
 
-  const switchAIEmployee = useCallback(
-    (aiEmployee: AIEmployee, options?: { clear?: ClearOptions }) => {
-      setCurrentEmployee(aiEmployee);
-      setCurrentConversation(undefined);
-      setCurrentWorkflowTask(undefined);
-      clear(options?.clear, undefined);
-      setModel(null);
-      if (aiEmployee) {
-        const greetingMsg = {
-          key: uid(),
-          role: aiEmployee.username,
-          content: {
-            type: 'greeting' as const,
-            content: aiEmployee.greeting || t('Default greeting message', { nickname: aiEmployee.nickname }),
-          },
-        };
-        senderRef.current?.focus();
-        draftChat.setMessages([greetingMsg]);
-      } else {
-        draftChat.setMessages([]);
-      }
-    },
-    [currentConversation, setCurrentWorkflowTask],
-  );
-
   const triggerTask = useCallback(
     async (options: TriggerTaskOptions) => {
       clear(undefined, undefined);
       const { aiEmployee, tasks } = options;
+      const isCustomEmployee = aiEmployee && !isBuiltIn(aiEmployee);
+
+      // Save tasks so switchAIEmployee can re-trigger when switching back
+      setLastTriggeredTasks(tasks?.length ? tasks : null);
+
       updateRole(aiEmployee);
       setReadonly(false);
       draftChat.setResponseLoading(false);
@@ -229,10 +216,12 @@ export const useChatBoxActions = () => {
         },
       ];
       if (!tasks?.length) {
+        setRequireTaskSelection(false);
         draftChat.setMessages(msgs);
         return;
       }
       if (tasks.length === 1 && options.auto !== false) {
+        setRequireTaskSelection(false);
         draftChat.setMessages(msgs);
         const task = tasks[0];
         const {
@@ -244,6 +233,9 @@ export const useChatBoxActions = () => {
           webSearch,
           model: taskModel,
         } = await parseTask(task);
+        // Append topic constraint for custom (non-built-in) AI employees
+        const finalSystemMessage =
+          isCustomEmployee && systemMessage ? systemMessage + TASK_TOPIC_CONSTRAINT : systemMessage;
         const resolvedModel = await resolveTaskModel(aiEmployee, taskModel);
         const service = (await aiConfigRepository.getLLMServices()).find(
           (s) => s.llmService === resolvedModel?.llmService,
@@ -263,8 +255,8 @@ export const useChatBoxActions = () => {
           draftChat.setContextItems(workContext);
           syncContextAttachments(workContext);
         }
-        if (systemMessage) {
-          draftChat.setSystemMessage(systemMessage);
+        if (finalSystemMessage) {
+          draftChat.setSystemMessage(finalSystemMessage);
         }
         if (skillSettings) {
           draftChat.setSkillSettings(skillSettings);
@@ -272,7 +264,7 @@ export const useChatBoxActions = () => {
         if (task.autoSend) {
           send({
             aiEmployee,
-            systemMessage,
+            systemMessage: finalSystemMessage,
             messages: [userMessage ?? { type: 'text', content: '' }],
             attachments,
             workContext,
@@ -282,6 +274,12 @@ export const useChatBoxActions = () => {
           });
         }
         return;
+      }
+      // Multiple tasks: require task selection for custom (non-built-in) AI employees
+      if (isCustomEmployee) {
+        setRequireTaskSelection(true);
+      } else {
+        setRequireTaskSelection(false);
       }
       msgs.push({
         key: uid(),
@@ -300,7 +298,44 @@ export const useChatBoxActions = () => {
       resolveTaskModel,
       setCurrentWorkflowTask,
       setWebSearch,
+      setRequireTaskSelection,
+      setLastTriggeredTasks,
     ],
+  );
+
+  const switchAIEmployee = useCallback(
+    (aiEmployee: AIEmployee, options?: { clear?: ClearOptions }) => {
+      setCurrentEmployee(aiEmployee);
+      setCurrentConversation(undefined);
+      setCurrentWorkflowTask(undefined);
+      setRequireTaskSelection(false);
+      clear(options?.clear, undefined);
+      setModel(null);
+
+      // Re-trigger task selection when switching back to a custom employee
+      // that had tasks from the last shortcut trigger
+      const lastTasks = useChatBoxStore.getState().lastTriggeredTasks;
+      if (aiEmployee && !isBuiltIn(aiEmployee) && lastTasks?.length) {
+        triggerTask({ aiEmployee, tasks: lastTasks });
+        return;
+      }
+
+      if (aiEmployee) {
+        const greetingMsg = {
+          key: uid(),
+          role: aiEmployee.username,
+          content: {
+            type: 'greeting' as const,
+            content: aiEmployee.greeting || t('Default greeting message', { nickname: aiEmployee.nickname }),
+          },
+        };
+        senderRef.current?.focus();
+        draftChat.setMessages([greetingMsg]);
+      } else {
+        draftChat.setMessages([]);
+      }
+    },
+    [currentConversation, setCurrentWorkflowTask, triggerTask],
   );
 
   return {

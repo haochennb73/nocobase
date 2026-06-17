@@ -10,7 +10,7 @@
 import type { Bubble, Sender } from '@ant-design/x';
 import type { GetProp, GetRef } from 'antd';
 import { create } from 'zustand';
-import type { AIEmployee } from '../../types';
+import type { AIEmployee, Task } from '../../types';
 import { createSelectors } from './create-selectors';
 import { getOrCreateGlobalStore } from './global-store';
 
@@ -49,6 +49,8 @@ interface ChatBoxState {
   showDebugPanel: boolean;
   readonly: boolean;
   isShowSenderHint: boolean;
+  requireTaskSelection: boolean;
+  lastTriggeredTasks: Task[] | null;
 }
 
 interface ChatBoxActions {
@@ -77,6 +79,8 @@ interface ChatBoxActions {
   setShowDebugPanel: (show: boolean) => void;
   setReadonly: (readonly: boolean) => void;
   setShowSenderHint: (show: boolean) => void;
+  setRequireTaskSelection: (require: boolean) => void;
+  setLastTriggeredTasks: (tasks: Task[] | null) => void;
 }
 
 const store = getOrCreateGlobalStore('@nocobase/plugin-ai/chat-box-store', () =>
@@ -107,6 +111,8 @@ const store = getOrCreateGlobalStore('@nocobase/plugin-ai/chat-box-store', () =>
     showDebugPanel: false,
     readonly: false,
     isShowSenderHint: false,
+    requireTaskSelection: false,
+    lastTriggeredTasks: null,
 
     setOpen: (open) => set({ open, ...(open ? {} : { collapsed: false }) }),
     setExpanded: (expanded) => set({ expanded, ...(expanded ? { collapsed: false } : {}) }),
@@ -138,6 +144,8 @@ const store = getOrCreateGlobalStore('@nocobase/plugin-ai/chat-box-store', () =>
     setShowDebugPanel: (show) => set({ showDebugPanel: show }),
     setReadonly: (readonly) => set({ readonly }),
     setShowSenderHint: (isShowSenderHint) => set({ isShowSenderHint }),
+    setRequireTaskSelection: (require) => set({ requireTaskSelection: require }),
+    setLastTriggeredTasks: (tasks) => set({ lastTriggeredTasks: tasks }),
   })),
 );
 
