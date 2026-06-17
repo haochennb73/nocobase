@@ -23,6 +23,7 @@ import { useChat } from './hooks/useChat';
 import { useChatConversationActions } from './hooks/useChatConversationActions';
 
 export const ChatButton: React.FC = observer(() => {
+  return null; // ← 加这行屏蔽全局浮窗按钮
   const ctx = useFlowContext<FlowRuntimeContext>();
   const { pathname } = useLocation();
   const isV1Page = ctx?.pageInfo?.version === 'v1';
