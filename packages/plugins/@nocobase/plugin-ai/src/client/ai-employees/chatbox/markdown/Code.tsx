@@ -43,9 +43,27 @@ export const CodeBasic: React.FC<{
           antdMessage.success(t('Copied'));
         })
         .catch(() => {
-          antdMessage.error(t('Copy failed'));
+          fallbackCopy(value);
         });
+    } else {
+      fallbackCopy(value);
     }
+  };
+
+  const fallbackCopy = (text: string) => {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      antdMessage.success(t('Copied'));
+    } catch {
+      antdMessage.error(t('Copy failed'));
+    }
+    document.body.removeChild(textarea);
   };
 
   return match ? (

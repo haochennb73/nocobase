@@ -94,9 +94,27 @@ const LogItem: React.FC<LogItemProps> = ({ log, expanded, onToggleExpand }) => {
           message.success('Copied to clipboard');
         })
         .catch(() => {
-          message.error('Failed to copy');
+          fallbackCopy(JSON.stringify(log.data, null, 2));
         });
+    } else {
+      fallbackCopy(JSON.stringify(log.data, null, 2));
     }
+  };
+
+  const fallbackCopy = (text: string) => {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      message.success('Copied to clipboard');
+    } catch {
+      message.error('Failed to copy');
+    }
+    document.body.removeChild(textarea);
   };
 
   return (

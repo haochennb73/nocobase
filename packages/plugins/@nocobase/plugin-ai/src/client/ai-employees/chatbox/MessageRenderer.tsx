@@ -29,6 +29,22 @@ import { observer } from '@nocobase/flow-engine';
 
 const { Markdown } = lazy(() => import('./markdown/Markdown'), 'Markdown');
 
+const fallbackCopy = (text: string, messageApi: any, t: any) => {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand('copy');
+    messageApi.success(t('Copied'));
+  } catch {
+    messageApi.error(t('Copy failed'));
+  }
+  document.body.removeChild(textarea);
+};
+
 const { Link } = Typography;
 
 const messageFooterWeakClass = css`
@@ -176,8 +192,10 @@ export const AIMessage: React.FC<{
           message.success(t('Copied'));
         })
         .catch(() => {
-          message.error(t('Copy failed'));
+          fallbackCopy(msg.content, message, t);
         });
+    } else {
+      fallbackCopy(msg.content, message, t);
     }
   };
 
@@ -290,8 +308,10 @@ export const UserMessage: React.FC<{
           message.success(t('Copied'));
         })
         .catch(() => {
-          message.error(t('Copy failed'));
+          fallbackCopy(msg.content, message, t);
         });
+    } else {
+      fallbackCopy(msg.content, message, t);
     }
   };
   const items = msg.attachments?.map((item, index) => ({

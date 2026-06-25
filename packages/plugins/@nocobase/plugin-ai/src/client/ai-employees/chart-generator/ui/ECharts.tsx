@@ -29,6 +29,21 @@ const ErrorFallback: React.FC<{ error: Error }> = ({ error }) => {
   if (responseLoading) {
     return null;
   }
+  const fallbackCopy = (text: string) => {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      message.success(t('Copied'));
+    } catch {
+      message.error(t('Copy failed'));
+    }
+    document.body.removeChild(textarea);
+  };
   return (
     <Alert
       showIcon={true}
@@ -48,7 +63,11 @@ const ErrorFallback: React.FC<{ error: Error }> = ({ error }) => {
                   .then(() => {
                     message.success(t('Copied'));
                   })
-                  .catch(() => {});
+                  .catch(() => {
+                    fallbackCopy(error.message);
+                  });
+              } else {
+                fallbackCopy(error.message);
               }
             }}
           />
