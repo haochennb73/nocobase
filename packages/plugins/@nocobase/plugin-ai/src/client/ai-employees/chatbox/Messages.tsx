@@ -99,6 +99,7 @@ export const Messages: React.FC = () => {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef(true);
+  const prevScrollTopRef = useRef(0);
 
   const isNearBottom = useCallback((container: HTMLDivElement) => {
     return container.scrollHeight - container.scrollTop - container.clientHeight <= STICKY_BOTTOM_THRESHOLD;
@@ -109,7 +110,19 @@ export const Messages: React.FC = () => {
     if (!container) {
       return;
     }
-    shouldStickToBottomRef.current = isNearBottom(container);
+
+    const currentScrollTop = container.scrollTop;
+
+    // Only disable auto-scroll when the user actively scrolls up
+    if (currentScrollTop < prevScrollTopRef.current) {
+      shouldStickToBottomRef.current = false;
+    }
+    // Re-enable auto-scroll when scrolled back near bottom
+    if (isNearBottom(container)) {
+      shouldStickToBottomRef.current = true;
+    }
+
+    prevScrollTopRef.current = currentScrollTop;
   }, [isNearBottom]);
 
   useEffect(() => {
