@@ -118,15 +118,14 @@ export const Messages: React.FC = () => {
       return;
     }
 
-    const observer = new ResizeObserver(() => {
+    const frame = requestAnimationFrame(() => {
       if (shouldStickToBottomRef.current) {
         container.scrollTop = container.scrollHeight;
       }
     });
-    observer.observe(container);
 
-    return () => observer.disconnect();
-  }, []);
+    return () => cancelAnimationFrame(frame);
+  }, [messages]);
 
   const renderConversationToggleDivider = (
     item: Extract<RenderedItem, { type: 'conversation-group' }>,
