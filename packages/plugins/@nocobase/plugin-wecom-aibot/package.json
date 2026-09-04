@@ -1,0 +1,26 @@
+{
+  "name": "@nocobase/plugin-wecom-aibot",
+  "displayName": "WeCom AI Bot Connector",
+  "displayName.zh-CN": "企业微信智能机器人连接器",
+  "description": "Connects NocoBase with WeCom intelligent bots (aibot) over the official long connection (WebSocket): message persistence, multi-bot configuration, workflow + AI employee closed loop.",
+  "description.zh-CN": "通过企微官方长连接（WebSocket）与智能机器人（aibot）收发消息：消息全程落库、多机器人配置、工作流与 AI 员工业务闭环。",
+  "version": "1.0.0",
+  "main": "dist/server/index.js",
+  "nocobase": {
+    "supportedVersions": [
+      "2.x"
+    ],
+    "editionLevel": 0
+  },
+  "dependencies": {
+    "@wecom/aibot-node-sdk": "^1.0.7"
+  },
+  "peerDependencies": {
+    "@nocobase/client": "2.x",
+    "@nocobase/client-v2": "2.x",
+    "@nocobase/database": "2.x",
+    "@nocobase/server": "2.x",
+    "@nocobase/test": "2.x",
+    "@nocobase/utils": "2.x"
+  }
+}

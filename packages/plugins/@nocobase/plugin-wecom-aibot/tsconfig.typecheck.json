@@ -1,0 +1,10 @@
+{
+  "extends": "/workspaces/nocobase-dev/nocobase/tsconfig.json",
+  "compilerOptions": {
+    "ignoreDeprecations": "5.0",
+    "noEmit": true,
+    "declaration": false,
+    "emitDeclarationOnly": false
+  },
+  "include": ["src/**/*"]
+}
