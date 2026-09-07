@@ -1,6 +1,7 @@
 {
-  "WeCom AI Bot": "WeCom AI Bot",
+  "WeCom Bot Connector": "WeCom Bot Connector",
   "Bot Management": "Bot Management",
+  "Bound Users": "Bound Users",
   "Unbound Users": "Unbound Users",
 
   "Add Bot": "Add Bot",
@@ -17,7 +18,6 @@
   "Delete": "Delete",
   "Connect": "Connect",
   "Disconnect": "Disconnect",
-  "Test connection": "Test connection",
   "Refresh": "Refresh",
   "Submit": "Submit",
   "Cancel": "Cancel",
@@ -33,16 +33,17 @@
   "Bot disabled": "Bot disabled",
   "Disable bot": "Disable bot",
   "Disabling disconnects the long connection. Pending replies of this bot will fail. Continue?": "Disabling disconnects the long connection. Pending replies of this bot will fail. Continue?",
-  "Testing opens a real long connection. WeCom allows only one live connection per bot, so any other running connection of this bot will be kicked. Continue?": "Testing opens a real long connection. WeCom allows only one live connection per bot, so any other running connection of this bot will be kicked. Continue?",
-  "Connection test succeeded": "Connection test succeeded",
-  "Connection test failed": "Connection test failed",
+  "Connect bot": "Connect bot",
+  "About to open the long connection with Bot ID: {{botId}}.": "About to open the long connection with Bot ID: {{botId}}.",
+  "WeCom allows only one live connection per Bot ID. Connecting here kicks any other connection of the same bot, and a kicked connection never auto-recovers — it must be reconnected manually.": "WeCom allows only one live connection per Bot ID. Connecting here kicks any other connection of the same bot, and a kicked connection never auto-recovers — it must be reconnected manually.",
+  "If the status turns to Error after connecting, check the Last error column for the reason.": "If the status turns to Error after connecting, check the Last error column for the reason.",
   "Failed to connect": "Failed to connect",
   "Disconnect the long connection of this bot? The bot stays enabled and reconnects on next app start.": "Disconnect the long connection of this bot? The bot stays enabled and reconnects on next app start.",
   "Are you sure you want to delete this bot? Message history tables are kept.": "Are you sure you want to delete this bot? Message history tables are kept.",
 
   "Long-connection requirements": "Long-connection requirements",
   "The server must allow outbound WebSocket connections to wss://openws.work.weixin.qq.com.": "The server must allow outbound WebSocket connections to wss://openws.work.weixin.qq.com.",
-  "WeCom allows only one live connection per bot; connecting elsewhere kicks the current one.": "WeCom allows only one live connection per bot; connecting elsewhere kicks the current one.",
+  "WeCom allows only one live connection per Bot ID. A connection kicked by a newer one never auto-recovers; reconnect it manually from this page (status shows Error with the reason).": "WeCom allows only one live connection per Bot ID. A connection kicked by a newer one never auto-recovers; reconnect it manually from this page (status shows Error with the reason).",
   "Find Bot ID and Secret in WeCom Admin Console: App Management → Intelligent Bot → long-connection settings.": "Find Bot ID and Secret in WeCom Admin Console: App Management → Intelligent Bot → long-connection settings.",
   "From WeCom Admin Console: App Management → Intelligent Bot → long-connection settings.": "From WeCom Admin Console: App Management → Intelligent Bot → long-connection settings.",
 
@@ -64,8 +65,17 @@
   "Welcome message": "Welcome message",
   "Sent within 5 seconds when a user opens the chat for the day.": "Sent within 5 seconds when a user opens the chat for the day.",
 
+  "Bound WeCom users": "Bound WeCom users",
+  "NocoBase users with a WeCom UserID binding (users.wecomUserId). Their messages are processed with the bound user identity. The WeCom long-connection protocol only carries the userid — the bound nickname/username is the human-readable identity shown in conversation records.": "NocoBase users with a WeCom UserID binding (users.wecomUserId). Their messages are processed with the bound user identity. The WeCom long-connection protocol only carries the userid — the bound nickname/username is the human-readable identity shown in conversation records.",
+  "Username": "Username",
+  "Nickname": "Nickname",
+  "Unbind": "Unbind",
+  "Unbind WeCom UserID": "Unbind WeCom UserID",
+  "After unbinding, messages from this WeCom user are treated as unbound again (archived only in strict mode). Continue?": "After unbinding, messages from this WeCom user are treated as unbound again (archived only in strict mode). Continue?",
+  "Unbound successfully": "Unbound successfully",
+
   "Unbound WeCom users": "Unbound WeCom users",
-  "These WeCom users sent messages but are not bound to any NocoBase user. In strict mode their messages are archived but not processed. Bind them by selecting the matching NocoBase user; the binding writes users.wecomUserId.": "These WeCom users sent messages but are not bound to any NocoBase user. In strict mode their messages are archived but not processed. Bind them by selecting the matching NocoBase user; the binding writes users.wecomUserId.",
+  "These WeCom users sent messages but are not bound to any NocoBase user. In strict mode their messages are archived but not processed. Bind them by selecting the matching NocoBase user; the binding writes users.wecomUserId.": "These WeCom users sent messages but are not bound to any NocoBase user. In strict mode their messages are archived but not processed. Bind them by selecting the matching NocoBase user; the binding writes users.wecomUserId. Click the message count to inspect the archived messages and recognize the sender.",
   "WeCom UserID": "WeCom UserID",
   "Message count": "Message count",
   "Last message at": "Last message at",
@@ -75,5 +85,21 @@
   "Search NocoBase users by nickname or username": "Search NocoBase users by nickname or username",
   "No matching users": "No matching users",
   "Binding succeeded": "Binding succeeded",
-  "This WeCom UserID is already bound to another NocoBase user.": "This WeCom UserID is already bound to another NocoBase user."
+  "This WeCom UserID is already bound to another NocoBase user.": "This WeCom UserID is already bound to another NocoBase user.",
+  "Messages of {{fromUserId}}": "Messages of {{fromUserId}}",
+  "Received at": "Received at",
+  "Bot": "Bot",
+  "Type": "Type",
+  "Content": "Content",
+  "No text content (see message type)": "No text content (see message type)",
+
+  "Received": "Received",
+  "Batched": "Batched",
+  "Processing": "Processing",
+  "Done": "Done",
+  "Failed": "Failed",
+  "Ignored": "Ignored",
+
+  "Open configuration page": "Open configuration page",
+  "The bot management page runs in the modern admin UI. Click the button below to open it.": "The bot management page runs in the modern admin UI. Click the button below to open it."
 }

@@ -50,6 +50,7 @@ export class PluginWecomAibotServer extends Plugin {
     this.services = ctx;
 
     this.registerSendHook();
+    this.registerUserBindingHook();
     this.registerSecretMiddleware();
     this.registerResources();
     this.setPermissions();
@@ -112,6 +113,47 @@ export class PluginWecomAibotServer extends Plugin {
   }
 
   /**
+   * Late-binding display-name backfill: when `users.wecomUserId` is written (bind dialog of
+   * the settings page, or the user management form), refresh the displayName of existing
+   * single-chat conversations so they show the NocoBase user's name instead of the raw
+   * WeCom userid. The WeCom long-connection protocol itself only carries `from.userid` —
+   * no name/nickname — so the binding is the only source of a human-readable identity.
+   */
+  private registerUserBindingHook(): void {
+    const UserModel = this.app.db.getModel('users');
+    UserModel.afterSave((model, options) => {
+      if (!model.changed('wecomUserId')) {
+        return;
+      }
+      const wecomUserId = String(model.get('wecomUserId') || '');
+      if (!wecomUserId) {
+        return;
+      }
+      const displayName = String(model.get('nickname') || '') || String(model.get('username') || '');
+      if (!displayName) {
+        return;
+      }
+      const run = () => {
+        const inbound = this.services.inbound;
+        if (!inbound) {
+          return;
+        }
+        inbound.backfillConversationDisplayName(wecomUserId, displayName).catch((err) => {
+          this.app.logger.error(
+            `[wecom-aibot] displayName backfill failed: ${err instanceof Error ? err.message : err}`,
+          );
+        });
+      };
+      const transaction = options?.transaction;
+      if (transaction && typeof transaction.afterCommit === 'function') {
+        transaction.afterCommit(run);
+      } else {
+        run();
+      }
+    });
+  }
+
+  /**
    * Secret handling for `RC01_wecom_bots` (design 03 §7):
    * - create: secret is required and stored AES-encrypted via the built-in app.aesEncryptor;
    * - update: empty/masked secret means "keep unchanged", otherwise re-encrypt;
@@ -158,30 +200,6 @@ export class PluginWecomAibotServer extends Plugin {
   }
 
   private registerResources(): void {
-    // Connection test: subscribes a throw-away long connection and closes it.
-    // NOTE: WeCom kicks any other live connection of the same botId (design G6).
-    this.app.resourceManager.registerActionHandler(`${COLLECTIONS.bots}:test`, async (ctx, next) => {
-      const params = ctx.action.params as ActionParams;
-      const values = params.values || {};
-      let botId = values.botId ? String(values.botId) : '';
-      let secret = values.secret ? String(values.secret) : '';
-
-      if (params.filterByTk) {
-        const bot = await this.app.db.getRepository(COLLECTIONS.bots).findOne({ filterByTk: params.filterByTk });
-        if (!bot) {
-          ctx.throw(404, 'bot not found');
-        }
-        botId = botId || String(bot.get('botId') || '');
-        secret = secret || ((await this.getDecryptedSecret(Number(bot.get('id')))) ?? '');
-      }
-
-      if (!botId || !secret) {
-        ctx.throw(400, 'botId and secret are required');
-      }
-      ctx.body = await this.services.connectionManager?.testConnection(botId, secret);
-      await next();
-    });
-
     this.app.resourceManager.registerActionHandler(`${COLLECTIONS.bots}:start`, async (ctx, next) => {
       const params = ctx.action.params as ActionParams;
       const repo = this.app.db.getRepository(COLLECTIONS.bots);
@@ -244,7 +262,6 @@ export class PluginWecomAibotServer extends Plugin {
         `${COLLECTIONS.bots}:create`,
         `${COLLECTIONS.bots}:update`,
         `${COLLECTIONS.bots}:destroy`,
-        `${COLLECTIONS.bots}:test`,
         `${COLLECTIONS.bots}:start`,
         `${COLLECTIONS.bots}:stop`,
       ],

@@ -9,7 +9,7 @@
 
 import { useFlowContext } from '@nocobase/flow-engine';
 import { useDebounceFn, useMemoizedFn, useRequest } from 'ahooks';
-import { Alert, App, Card, Modal, Select, Table, Tag } from 'antd';
+import { Alert, App, Card, Modal, Select, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import React, { useMemo, useState } from 'react';
 import { COLLECTIONS } from '../../constants';
@@ -25,6 +25,92 @@ interface UnboundUserRecord {
 interface UserOption {
   value: number;
   label: string;
+}
+
+interface ReceivedMessageRecord {
+  id: number;
+  msgType?: string;
+  content?: string | null;
+  receivedAt?: string | null;
+  processStatus?: string;
+  ignoreReason?: string | null;
+  botId?: number;
+}
+
+/**
+ * Message detail of one unbound WeCom userid (issue #2): the long-connection protocol
+ * carries no name, so recognizing who sent what requires reading the archived messages.
+ */
+function UserMessagesView(props: { fromUserId: string; botNames?: Map<number, string> }) {
+  const t = useT();
+  const ctx = useFlowContext();
+  const resource = useMemo(() => ctx.api.resource(COLLECTIONS.receivedMessages), [ctx.api]);
+
+  const { data, loading } = useRequest(async () => {
+    const response = await resource.list({
+      filter: { fromUserId: props.fromUserId },
+      // NOTE: `fields`, not `attributes` — `attributes` silently drops the filter.
+      fields: ['id', 'msgType', 'content', 'receivedAt', 'processStatus', 'ignoreReason', 'botId'],
+      sort: ['-receivedAt'],
+      pageSize: 200,
+    });
+    const payload = response?.data?.data;
+    return Array.isArray(payload) ? (payload as ReceivedMessageRecord[]) : [];
+  });
+
+  const columns = useMemo<ColumnsType<ReceivedMessageRecord>>(
+    () => [
+      {
+        title: t('Received at'),
+        dataIndex: 'receivedAt',
+        width: 180,
+        render: (value: string | null) => (value ? new Date(value).toLocaleString() : '-'),
+      },
+      {
+        title: t('Bot'),
+        dataIndex: 'botId',
+        width: 140,
+        render: (id: number) => <Tag>{props.botNames?.get(id) || `#${id}`}</Tag>,
+      },
+      {
+        title: t('Type'),
+        dataIndex: 'msgType',
+        width: 100,
+        render: (value: string | null) => <Tag>{value || '-'}</Tag>,
+      },
+      {
+        title: t('Content'),
+        dataIndex: 'content',
+        render: (value: string | null, record) => (
+          <>
+            {value ? (
+              <span style={{ whiteSpace: 'pre-wrap' }}>{value}</span>
+            ) : (
+              <Typography.Text type="secondary">{t('No text content (see message type)')}</Typography.Text>
+            )}
+            {record.ignoreReason ? <Typography.Text type="secondary"> [{record.ignoreReason}]</Typography.Text> : null}
+          </>
+        ),
+      },
+    ],
+    [props.botNames, t],
+  );
+
+  return (
+    <Card variant="borderless">
+      <Typography.Title level={5} style={{ marginTop: 0 }}>
+        {t('Messages of {{fromUserId}}', { fromUserId: props.fromUserId })}
+      </Typography.Title>
+      <Table<ReceivedMessageRecord>
+        rowKey="id"
+        size="small"
+        loading={loading}
+        columns={columns}
+        dataSource={data || []}
+        pagination={{ pageSize: 20, showSizeChanger: false }}
+      />
+    </Card>
+  );
 }
 
 export default function UnboundUsersPage() {
@@ -94,6 +180,16 @@ export default function UnboundUsersPage() {
     fetchUserOptions('');
   });
 
+  // Issue #2: click the message count to inspect the archived messages of that userid —
+  // without a binding the raw userid is the only identity, so the content helps recognize the sender.
+  const openMessages = useMemoizedFn((record: UnboundUserRecord) => {
+    ctx.viewer.drawer({
+      width: '60%',
+      closable: true,
+      content: () => <UserMessagesView fromUserId={record.fromUserId} botNames={botNames} />,
+    });
+  });
+
   const closeBindModal = useMemoizedFn(() => {
     setBindingRecord(null);
     setSelectedUserId(undefined);
@@ -129,7 +225,12 @@ export default function UnboundUsersPage() {
   const columns = useMemo<ColumnsType<UnboundUserRecord>>(
     () => [
       { title: t('WeCom UserID'), dataIndex: 'fromUserId', ellipsis: true },
-      { title: t('Message count'), dataIndex: 'messageCount', width: 140 },
+      {
+        title: t('Message count'),
+        dataIndex: 'messageCount',
+        width: 140,
+        render: (value: number, record) => <a onClick={() => openMessages(record)}>{value}</a>,
+      },
       {
         title: t('Last message at'),
         dataIndex: 'lastMessageAt',
@@ -154,7 +255,7 @@ export default function UnboundUsersPage() {
         render: (_, record) => <a onClick={() => openBindModal(record)}>{t('Bind')}</a>,
       },
     ],
-    [botNames, openBindModal, t],
+    [botNames, openBindModal, openMessages, t],
   );
 
   return (

@@ -14,6 +14,9 @@ export default defineCollection({
   name: 'RC01_wecom_conversations',
   title: '{{t("WeCom Conversations")}}',
   dumpRules: { group: 'third-party' },
+  // Registered into the collection manager (meta row via db2cm migration) so the
+  // table is visible to data source management, block pickers and workflows.
+  uiManageable: true,
   indexes: [
     {
       unique: true,

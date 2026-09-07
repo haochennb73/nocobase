@@ -15,6 +15,10 @@ export default defineCollection({
   name: 'RC01_wecom_process_tasks',
   title: '{{t("WeCom Process Tasks")}}',
   dumpRules: { group: 'third-party' },
+  // Registered into the collection manager (meta row via db2cm migration) so the
+  // table is visible to data source management, block pickers and workflows
+  // (WF-A collection-event trigger watches this table).
+  uiManageable: true,
   indexes: [
     {
       fields: ['taskStatus', 'createdAt'],

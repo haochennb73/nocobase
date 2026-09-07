@@ -60,14 +60,43 @@ export default function BotListPage() {
     });
   });
 
+  /**
+   * Connect (and the enable switch's ON side) always asks for confirmation with the full
+   * mutual-kick semantics up front — there is deliberately no separate "test connection"
+   * action: a test connection is a real subscription and would kick the live one.
+   */
+  const confirmStart = useMemoizedFn((record: BotRecord) => {
+    modal.confirm({
+      title: t('Connect bot'),
+      width: 600,
+      content: (
+        <ul style={{ margin: 0, paddingLeft: 20 }}>
+          <li>{t('About to open the long connection with Bot ID: {{botId}}.', { botId: record.botId })}</li>
+          <li>
+            {t(
+              'WeCom allows only one live connection per Bot ID. Connecting here kicks any other connection of the same bot, and a kicked connection never auto-recovers — it must be reconnected manually.',
+            )}
+          </li>
+          <li>{t('If the status turns to Error after connecting, check the Last error column for the reason.')}</li>
+          <li>{t('The server must allow outbound WebSocket connections to wss://openws.work.weixin.qq.com.')}</li>
+        </ul>
+      ),
+      async onOk() {
+        const response = await resource.start({ filterByTk: record.id });
+        const result = response?.data?.data as { ok?: boolean; error?: string } | undefined;
+        if (result?.ok === false) {
+          message.error(result.error || t('Failed to connect'));
+        } else {
+          message.success(t('Connecting'));
+        }
+        refresh();
+      },
+    });
+  });
+
   const handleToggleEnabled = useMemoizedFn((record: BotRecord, checked: boolean) => {
     if (checked) {
-      const enable = async () => {
-        await resource.start({ filterByTk: record.id });
-        message.success(t('Bot enabled'));
-        refresh();
-      };
-      enable().catch((err: unknown) => message.error(err instanceof Error ? err.message : String(err)));
+      confirmStart(record);
       return;
     }
     modal.confirm({
@@ -79,36 +108,6 @@ export default function BotListPage() {
         refresh();
       },
     });
-  });
-
-  const handleTest = useMemoizedFn((record: BotRecord) => {
-    modal.confirm({
-      title: t('Test connection'),
-      content: t(
-        'Testing opens a real long connection. WeCom allows only one live connection per bot, so any other running connection of this bot will be kicked. Continue?',
-      ),
-      async onOk() {
-        const response = await resource.test({ filterByTk: record.id });
-        const result = response?.data?.data as { ok?: boolean; error?: string } | undefined;
-        if (result?.ok) {
-          message.success(t('Connection test succeeded'));
-        } else {
-          message.error(t('Connection test failed') + (result?.error ? `: ${result.error}` : ''));
-        }
-        refresh();
-      },
-    });
-  });
-
-  const handleStart = useMemoizedFn(async (record: BotRecord) => {
-    const response = await resource.start({ filterByTk: record.id });
-    const result = response?.data?.data as { ok?: boolean; error?: string } | undefined;
-    if (result?.ok === false) {
-      message.error(result.error || t('Failed to connect'));
-    } else {
-      message.success(t('Connecting'));
-    }
-    refresh();
   });
 
   const handleStop = useMemoizedFn((record: BotRecord) => {
@@ -135,8 +134,9 @@ export default function BotListPage() {
 
   const columns = useMemo<ColumnsType<BotRecord>>(
     () => [
-      { title: t('Name'), dataIndex: 'name', ellipsis: true },
-      { title: t('Bot ID'), dataIndex: 'botId', ellipsis: true },
+      // Full display without ellipsis (issue 5a). The long Bot ID is intentionally not a
+      // column (issue 5b) — it stays visible in the edit form only.
+      { title: t('Name'), dataIndex: 'name' },
       {
         title: t('Enabled'),
         dataIndex: 'enabled',
@@ -175,19 +175,18 @@ export default function BotListPage() {
       },
       {
         title: t('Actions'),
-        width: 280,
+        width: 220,
         render: (_, record) => (
           <Space wrap>
             <a onClick={() => openForm('edit', record)}>{t('Edit')}</a>
-            <a onClick={() => handleTest(record)}>{t('Test connection')}</a>
-            <a onClick={() => handleStart(record)}>{t('Connect')}</a>
+            <a onClick={() => confirmStart(record)}>{t('Connect')}</a>
             <a onClick={() => handleStop(record)}>{t('Disconnect')}</a>
             <a onClick={() => handleDelete(record)}>{t('Delete')}</a>
           </Space>
         ),
       },
     ],
-    [handleDelete, handleStart, handleStop, handleTest, handleToggleEnabled, openForm, t],
+    [confirmStart, handleDelete, handleStop, handleToggleEnabled, openForm, t],
   );
 
   return (
@@ -200,7 +199,11 @@ export default function BotListPage() {
         description={
           <ul style={{ margin: 0, paddingLeft: 20 }}>
             <li>{t('The server must allow outbound WebSocket connections to wss://openws.work.weixin.qq.com.')}</li>
-            <li>{t('WeCom allows only one live connection per bot; connecting elsewhere kicks the current one.')}</li>
+            <li>
+              {t(
+                'WeCom allows only one live connection per Bot ID. A connection kicked by a newer one never auto-recovers; reconnect it manually from this page (status shows Error with the reason).',
+              )}
+            </li>
             <li>
               {t(
                 'Find Bot ID and Secret in WeCom Admin Console: App Management → Intelligent Bot → long-connection settings.',

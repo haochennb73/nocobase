@@ -1,7 +1,7 @@
 {
   "name": "@nocobase/plugin-wecom-aibot",
-  "displayName": "WeCom AI Bot Connector",
-  "displayName.zh-CN": "企业微信智能机器人连接器",
+  "displayName": "WeCom Bot Connector",
+  "displayName.zh-CN": "企微Bot连接器",
   "description": "Connects NocoBase with WeCom intelligent bots (aibot) over the official long connection (WebSocket): message persistence, multi-bot configuration, workflow + AI employee closed loop.",
   "description.zh-CN": "通过企微官方长连接（WebSocket）与智能机器人（aibot）收发消息：消息全程落库、多机器人配置、工作流与 AI 员工业务闭环。",
   "version": "1.0.0",

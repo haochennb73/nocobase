@@ -14,6 +14,9 @@ export default defineCollection({
   name: 'RC01_wecom_received_messages',
   title: '{{t("WeCom Received Messages")}}',
   dumpRules: { group: 'third-party' },
+  // Registered into the collection manager (meta row via db2cm migration) so the
+  // table is visible to data source management, block pickers and workflows.
+  uiManageable: true,
   indexes: [
     {
       fields: ['processStatus', 'botId'],

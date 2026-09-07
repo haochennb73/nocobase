@@ -10,12 +10,18 @@
 import { WSClient } from '@wecom/aibot-node-sdk';
 import type { BaseMessage, EventMessage, WsFrame } from '@wecom/aibot-node-sdk';
 import type { Model } from '@nocobase/database';
-import { COLLECTIONS, CONN_STATUS } from '../../constants';
+import { COLLECTIONS, CONN_STATUS, KICK_DISCONNECT_MESSAGE } from '../../constants';
 import type { ServiceContext } from './context';
 
 export interface BotRuntime {
   client: WSClient;
   startedAt: number;
+  /**
+   * Set when the WeCom server pushes `disconnected_event` (another connection subscribed
+   * with the same Bot ID). The SDK never reconnects after a kick, so the following
+   * `disconnected` event is terminal and must be persisted as `error`, not `reconnecting`.
+   */
+  kicked?: boolean;
 }
 
 export interface ConnectionManagerDeps {
@@ -34,6 +40,10 @@ export interface ConnectionManagerDeps {
  */
 export class ConnectionManager {
   private runtimes = new Map<number, BotRuntime>();
+
+  /** In-flight start promises keyed by bot db id — prevents two concurrent start() calls
+   * from creating two WSClient instances for the same bot (which would kick each other). */
+  private inflightStarts = new Map<number, Promise<void>>();
 
   constructor(private deps: ConnectionManagerDeps) {}
 
@@ -61,6 +71,24 @@ export class ConnectionManager {
 
   async start(bot: Model): Promise<void> {
     const botDbId = Number(bot.get('id'));
+    if (this.runtimes.has(botDbId)) {
+      return;
+    }
+    // Serialize concurrent start() calls: the original implementation only registered the
+    // runtime after several awaits, so overlapping calls (e.g. clicking Connect while the
+    // app-start connection was still handshaking) could open two connections for one bot.
+    const pending = this.inflightStarts.get(botDbId);
+    if (pending) {
+      return pending;
+    }
+    const task = this.doStart(botDbId, bot).finally(() => {
+      this.inflightStarts.delete(botDbId);
+    });
+    this.inflightStarts.set(botDbId, task);
+    return task;
+  }
+
+  private async doStart(botDbId: number, bot: Model): Promise<void> {
     if (this.runtimes.has(botDbId)) {
       return;
     }
@@ -133,54 +161,6 @@ export class ConnectionManager {
     await this.start(bot);
   }
 
-  /**
-   * Open a throw-away connection to verify credentials, then close it.
-   * NOTE: WeCom kicks any other live connection of the same botId when this
-   * test connection subscribes — the UI must warn about this.
-   */
-  async testConnection(botId: string, secret: string, timeoutMs = 15000): Promise<{ ok: boolean; error?: string }> {
-    return new Promise((resolve) => {
-      const client = new WSClient({
-        botId,
-        secret,
-        maxReconnectAttempts: 0,
-        maxAuthFailureAttempts: 1,
-        logger: {
-          info: () => undefined,
-          warn: () => undefined,
-          error: () => undefined,
-          debug: () => undefined,
-        },
-      });
-
-      let settled = false;
-      const finish = (result: { ok: boolean; error?: string }) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timer);
-        try {
-          client.disconnect();
-        } catch {
-          // ignore teardown errors of a test connection
-        }
-        resolve(result);
-      };
-
-      const timer = setTimeout(() => finish({ ok: false, error: 'timeout' }), timeoutMs);
-      client.on('authenticated', () => finish({ ok: true }));
-      client.on('error', (err) => finish({ ok: false, error: err?.message || 'auth error' }));
-      client.on('disconnected', (reason) => finish({ ok: false, error: reason || 'disconnected' }));
-
-      try {
-        client.connect();
-      } catch (err) {
-        finish({ ok: false, error: err instanceof Error ? err.message : String(err) });
-      }
-    });
-  }
-
   getClient(botDbId: number): WSClient | undefined {
     return this.runtimes.get(botDbId)?.client;
   }
@@ -195,7 +175,22 @@ export class ConnectionManager {
     });
 
     client.on('disconnected', async (reason: string) => {
-      // The SDK reconnects automatically; surface the reason for diagnostics.
+      const runtime = this.runtimes.get(botDbId);
+      if (!runtime) {
+        // Manual stop(): the runtime was already removed and stop() persisted `disconnected`.
+        return;
+      }
+      if (runtime.kicked) {
+        // Server kick (`disconnected_event`): the SDK sets isManualClose internally and never
+        // reconnects — treat it as terminal, drop the dead client and surface a hard error
+        // instead of a misleading, permanently frozen "reconnecting" status.
+        this.runtimes.delete(botDbId);
+        this.logger.warn(`[wecom-aibot] bot#${botDbId} was kicked by a newer connection of the same Bot ID`);
+        await this.updateStatus(botDbId, CONN_STATUS.error, KICK_DISCONNECT_MESSAGE);
+        return;
+      }
+      // Transient close (network drop, heartbeat timeout): the SDK schedules its own
+      // reconnect right after this event; surface the reason for diagnostics.
       await this.updateStatus(botDbId, CONN_STATUS.reconnecting, reason);
     });
 
@@ -219,6 +214,16 @@ export class ConnectionManager {
     });
 
     client.on('event', async (frame: WsFrame<EventMessage>) => {
+      // Intercept the kick notification before any async work: the SDK emits
+      // `disconnected` synchronously right after dispatching this frame, so the flag
+      // must be set in the same tick for the handler above to see it.
+      if (frame.body?.event?.eventtype === 'disconnected_event') {
+        const runtime = this.runtimes.get(botDbId);
+        if (runtime) {
+          runtime.kicked = true;
+        }
+        return;
+      }
       try {
         await this.deps.ctx.inbound?.handleEvent(botDbId, frame);
       } catch (err) {

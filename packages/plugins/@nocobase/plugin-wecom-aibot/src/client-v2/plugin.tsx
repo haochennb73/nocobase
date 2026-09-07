@@ -16,7 +16,7 @@ export class PluginWecomAibotClientV2 extends Plugin<Record<string, never>, Appl
   async load() {
     this.pluginSettingsManager.addMenuItem({
       key: MENU_KEY,
-      title: this.t('WeCom AI Bot'),
+      title: this.t('WeCom Bot Connector'),
       icon: 'RobotOutlined',
       aclSnippet: 'pm.wecom-aibot.view',
     });
@@ -32,10 +32,19 @@ export class PluginWecomAibotClientV2 extends Plugin<Record<string, never>, Appl
 
     this.pluginSettingsManager.addPageTabItem({
       menuKey: MENU_KEY,
+      key: 'bound-users',
+      title: this.t('Bound Users'),
+      aclSnippet: 'pm.wecom-aibot.view',
+      sort: 2,
+      componentLoader: () => import('./pages/BoundUsersPage'),
+    });
+
+    this.pluginSettingsManager.addPageTabItem({
+      menuKey: MENU_KEY,
       key: 'unbound-users',
       title: this.t('Unbound Users'),
       aclSnippet: 'pm.wecom-aibot.view',
-      sort: 2,
+      sort: 3,
       componentLoader: () => import('./pages/UnboundUsersPage'),
     });
   }

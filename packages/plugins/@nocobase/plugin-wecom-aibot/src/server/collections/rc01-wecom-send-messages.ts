@@ -15,6 +15,10 @@ export default defineCollection({
   name: 'RC01_wecom_send_messages',
   title: '{{t("WeCom Send Messages")}}',
   dumpRules: { group: 'third-party' },
+  // Registered into the collection manager (meta row via db2cm migration) so the
+  // table is visible to data source management, block pickers and workflows
+  // (WF-A creates `pending` rows here).
+  uiManageable: true,
   indexes: [
     {
       fields: ['sendStatus', 'botId'],

@@ -116,10 +116,18 @@ export class InboundService {
     }
 
     // 3. Resolve the NocoBase user bound to this WeCom userid (supplement requirement D5).
-    const userId = await this.resolveUserId(fromUserId);
+    const binding = await this.resolveBinding(fromUserId);
+    const userId = binding.userId;
 
     // 4. Merge into the (bot, chatType, chatKey) conversation record.
-    const conversation = await this.ensureConversation(botDbId, chatType, chatKey, fromUserId, userId);
+    const conversation = await this.ensureConversation(
+      botDbId,
+      chatType,
+      chatKey,
+      fromUserId,
+      userId,
+      binding.displayName,
+    );
     const conversationId = Number(conversation.get('id'));
 
     const isTextLike = (TEXT_MSG_TYPES as readonly string[]).includes(msgType);
@@ -234,18 +242,20 @@ export class InboundService {
       }
       const chatType = event.chattype === CHAT_TYPE.group ? CHAT_TYPE.group : CHAT_TYPE.single;
       const fromUserId = String(event.from?.userid || '');
+      const binding = await this.resolveBinding(fromUserId);
       const conversation = await this.ensureConversation(
         botDbId,
         chatType,
         chatType === CHAT_TYPE.group ? String(event.chatid || '') : fromUserId,
         fromUserId,
-        await this.resolveUserId(fromUserId),
+        binding.userId,
+        binding.displayName,
       );
       await this.createReceived({
         msgId: event.msgid,
         botId: botDbId,
         conversationId: Number(conversation.get('id')),
-        userId: await this.resolveUserId(fromUserId),
+        userId: binding.userId,
         chatType,
         chatId: event.chatid || null,
         fromUserId,
@@ -283,7 +293,7 @@ export class InboundService {
       return;
     }
 
-    const userId = await this.resolveUserId(window.lastFromUserId);
+    const userId = (await this.resolveBinding(window.lastFromUserId)).userId;
     const contextHistory = await this.ctx.history?.render(window.conversationId, Number(bot.get('historyRounds') || 0));
     const task = await this.createTask({
       botDbId: window.botDbId,
@@ -411,18 +421,41 @@ export class InboundService {
     });
   }
 
-  /** from.userid → users.wecomUserId lookup (supplement requirement D5). */
-  private async resolveUserId(fromUserId: string): Promise<number | null> {
+  /**
+   * from.userid → users.wecomUserId lookup (supplement requirement D5). Also returns a
+   * human-readable name: the WeCom long-connection protocol only carries `from.userid`
+   * (no name/nickname), so the bound NocoBase user is the only identity source.
+   */
+  private async resolveBinding(fromUserId: string): Promise<{ userId: number | null; displayName: string | null }> {
     if (!fromUserId) {
-      return null;
+      return { userId: null, displayName: null };
     }
     // NOTE: use `fields`, never `attributes` — OptionsParser drops the whole
     // where clause when `attributes` is present (options-parser.ts parseFields).
     const user = await this.repo('users').findOne({
       filter: { wecomUserId: fromUserId },
-      fields: ['id'],
+      fields: ['id', 'nickname', 'username'],
     });
-    return user ? Number(user.get('id')) : null;
+    if (!user) {
+      return { userId: null, displayName: null };
+    }
+    const displayName = String(user.get('nickname') || '') || String(user.get('username') || '');
+    return { userId: Number(user.get('id')), displayName: displayName || null };
+  }
+
+  /**
+   * Late-binding backfill (triggered by the users afterSave hook in plugin.ts): refresh
+   * existing single-chat conversations of a freshly bound WeCom userid so they show the
+   * NocoBase user's name instead of the raw userid.
+   */
+  async backfillConversationDisplayName(wecomUserId: string, displayName: string): Promise<void> {
+    if (!wecomUserId || !displayName) {
+      return;
+    }
+    await this.repo(COLLECTIONS.conversations).update({
+      filter: { fromUserId: wecomUserId, chatType: CHAT_TYPE.single },
+      values: { displayName },
+    });
   }
 
   private async ensureConversation(
@@ -431,7 +464,11 @@ export class InboundService {
     chatKey: string,
     fromUserId: string,
     userId: number | null,
+    boundDisplayName?: string | null,
   ): Promise<Model> {
+    // Single chats prefer the bound NocoBase user's name over the raw userid; group chats
+    // keep the chatKey (the protocol carries no group title).
+    const displayName = chatType === CHAT_TYPE.single && boundDisplayName ? boundDisplayName : chatKey;
     const repo = this.repo(COLLECTIONS.conversations);
     let conversation: Model | null = await repo.findOne({
       filter: { botId: botDbId, chatType, chatKey },
@@ -446,7 +483,7 @@ export class InboundService {
             chatType,
             chatKey,
             fromUserId,
-            displayName: chatKey,
+            displayName,
             lastActiveAt: new Date(),
             messageCount: 1,
           },
@@ -467,6 +504,9 @@ export class InboundService {
     };
     if (userId && !conversation.get('userId')) {
       values.userId = userId; // Late binding: user got mapped after first contact.
+    }
+    if (displayName !== String(conversation.get('displayName') || '')) {
+      values.displayName = displayName; // Bound nickname appeared/changed: refresh the display name.
     }
     await repo.update({ filterByTk: conversation.get('id'), values });
     return conversation;
