@@ -10,6 +10,8 @@
 import { defineCollection } from '@nocobase/database';
 
 // One row = one single/group chat conversation under a bot. Used for multi-turn context and ownership tracing.
+// Every field carries `interface` + `uiSchema` so the collection manager, block pickers and
+// workflows treat these fields as first-class no-code fields (display names come from locale).
 export default defineCollection({
   name: 'RC01_wecom_conversations',
   title: '{{t("WeCom Conversations")}}',
@@ -29,16 +31,29 @@ export default defineCollection({
       name: 'botId',
       allowNull: false,
       index: true,
+      interface: 'integer',
+      uiSchema: {
+        type: 'number',
+        title: '{{t("Bot ID")}}',
+        'x-component': 'InputNumber',
+      },
     },
     {
       type: 'bigInt',
       name: 'userId',
       index: true,
+      interface: 'integer',
+      uiSchema: {
+        type: 'number',
+        title: '{{t("User ID")}}',
+        'x-component': 'InputNumber',
+      },
     },
     {
       type: 'string',
       name: 'chatType',
       allowNull: false,
+      interface: 'select',
       uiSchema: {
         type: 'string',
         title: '{{t("Chat type")}}',
@@ -53,6 +68,7 @@ export default defineCollection({
       type: 'string',
       name: 'chatKey',
       allowNull: false,
+      interface: 'input',
       uiSchema: {
         type: 'string',
         title: '{{t("Chat key")}}',
@@ -62,6 +78,7 @@ export default defineCollection({
     {
       type: 'string',
       name: 'fromUserId',
+      interface: 'input',
       uiSchema: {
         type: 'string',
         title: '{{t("WeCom userid")}}',
@@ -71,6 +88,7 @@ export default defineCollection({
     {
       type: 'string',
       name: 'displayName',
+      interface: 'input',
       uiSchema: {
         type: 'string',
         title: '{{t("Display name")}}',
@@ -80,6 +98,7 @@ export default defineCollection({
     {
       type: 'string',
       name: 'aiSessionId',
+      interface: 'input',
       uiSchema: {
         type: 'string',
         title: '{{t("AI session id")}}',
@@ -90,8 +109,9 @@ export default defineCollection({
       type: 'date',
       name: 'lastActiveAt',
       index: true,
+      interface: 'datetime',
       uiSchema: {
-        type: 'date',
+        type: 'string',
         title: '{{t("Last active at")}}',
         'x-component': 'DatePicker',
         'x-component-props': { showTime: true },
@@ -101,13 +121,70 @@ export default defineCollection({
       type: 'integer',
       name: 'messageCount',
       defaultValue: 0,
+      interface: 'integer',
       uiSchema: {
         type: 'number',
         title: '{{t("Message count")}}',
         'x-component': 'InputNumber',
       },
     },
-    { type: 'belongsTo', name: 'bot', target: 'RC01_wecom_bots', foreignKey: 'botId' },
-    { type: 'belongsTo', name: 'user', target: 'users', foreignKey: 'userId' },
+    {
+      type: 'date',
+      name: 'createdAt',
+      field: 'createdAt',
+      interface: 'createdAt',
+      uiSchema: {
+        type: 'datetime',
+        title: '{{t("Created at")}}',
+        'x-component': 'DatePicker',
+        'x-component-props': { dateFormat: 'YYYY-MM-DD', showTime: true },
+        'x-read-pretty': true,
+      },
+    },
+    {
+      type: 'date',
+      name: 'updatedAt',
+      field: 'updatedAt',
+      interface: 'updatedAt',
+      uiSchema: {
+        type: 'datetime',
+        title: '{{t("Last updated at")}}',
+        'x-component': 'DatePicker',
+        'x-component-props': { dateFormat: 'YYYY-MM-DD', showTime: true },
+        'x-read-pretty': true,
+      },
+    },
+    {
+      type: 'belongsTo',
+      name: 'bot',
+      target: 'RC01_wecom_bots',
+      foreignKey: 'botId',
+      interface: 'm2o',
+      uiSchema: {
+        type: 'string',
+        title: '{{t("Bot")}}',
+        'x-component': 'AssociationField',
+        'x-component-props': {
+          multiple: false,
+          fieldNames: { label: 'name', value: 'id' },
+        },
+      },
+    },
+    {
+      type: 'belongsTo',
+      name: 'user',
+      target: 'users',
+      foreignKey: 'userId',
+      interface: 'm2o',
+      uiSchema: {
+        type: 'string',
+        title: '{{t("User")}}',
+        'x-component': 'AssociationField',
+        'x-component-props': {
+          multiple: false,
+          fieldNames: { label: 'nickname', value: 'id' },
+        },
+      },
+    },
   ],
 });
