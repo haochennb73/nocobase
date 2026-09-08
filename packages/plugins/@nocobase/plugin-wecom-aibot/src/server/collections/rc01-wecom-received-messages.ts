@@ -8,13 +8,14 @@
  */
 
 import { defineCollection } from '@nocobase/database';
+import { I18N_NAMESPACE } from '../../constants';
 
 // Inbound messages received from WeCom bots. `msgId` unique index provides idempotency.
 // Every field carries `interface` + `uiSchema` so the collection manager, block pickers and
 // workflows treat these fields as first-class no-code fields (display names come from locale).
 export default defineCollection({
   name: 'RC01_wecom_received_messages',
-  title: '{{t("WeCom Received Messages")}}',
+  title: `{{t("WeCom Received Messages", { ns: "${I18N_NAMESPACE}" })}}`,
   dumpRules: { group: 'third-party' },
   // Registered into the collection manager (meta row via db2cm migration) so the
   // table is visible to data source management, block pickers and workflows.
@@ -36,7 +37,7 @@ export default defineCollection({
       interface: 'input',
       uiSchema: {
         type: 'string',
-        title: '{{t("WeCom message ID")}}',
+        title: `{{t("WeCom message ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -48,7 +49,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("Bot ID")}}',
+        title: `{{t("Bot ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -59,7 +60,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("Conversation ID")}}',
+        title: `{{t("Conversation ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -70,7 +71,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("User ID")}}',
+        title: `{{t("User ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -80,7 +81,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("Task ID")}}',
+        title: `{{t("Task ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -91,11 +92,11 @@ export default defineCollection({
       interface: 'select',
       uiSchema: {
         type: 'string',
-        title: '{{t("Chat type")}}',
+        title: `{{t("Chat type", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Select',
         enum: [
-          { value: 'single', label: '{{t("Single chat")}}' },
-          { value: 'group', label: '{{t("Group chat")}}' },
+          { value: 'single', label: `{{t("Single chat", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'group', label: `{{t("Group chat", { ns: "${I18N_NAMESPACE}" })}}` },
         ],
       },
     },
@@ -105,7 +106,7 @@ export default defineCollection({
       interface: 'input',
       uiSchema: {
         type: 'string',
-        title: '{{t("WeCom chat id")}}',
+        title: `{{t("WeCom chat id", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -117,7 +118,7 @@ export default defineCollection({
       interface: 'input',
       uiSchema: {
         type: 'string',
-        title: '{{t("Sender WeCom userid")}}',
+        title: `{{t("Sender WeCom userid", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -128,7 +129,7 @@ export default defineCollection({
       interface: 'input',
       uiSchema: {
         type: 'string',
-        title: '{{t("Message type")}}',
+        title: `{{t("Message type", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -139,7 +140,7 @@ export default defineCollection({
       interface: 'textarea',
       uiSchema: {
         type: 'string',
-        title: '{{t("Content")}}',
+        title: `{{t("Content", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input.TextArea',
       },
     },
@@ -150,7 +151,7 @@ export default defineCollection({
       interface: 'json',
       uiSchema: {
         type: 'object',
-        title: '{{t("Media info")}}',
+        title: `{{t("Media info", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input.JSON',
       },
     },
@@ -161,7 +162,7 @@ export default defineCollection({
       interface: 'json',
       uiSchema: {
         type: 'object',
-        title: '{{t("Raw payload")}}',
+        title: `{{t("Raw payload", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input.JSON',
       },
     },
@@ -173,7 +174,7 @@ export default defineCollection({
       interface: 'datetime',
       uiSchema: {
         type: 'string',
-        title: '{{t("Received at")}}',
+        title: `{{t("Received at", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'DatePicker',
         'x-component-props': { showTime: true },
       },
@@ -186,15 +187,15 @@ export default defineCollection({
       interface: 'select',
       uiSchema: {
         type: 'string',
-        title: '{{t("Process status")}}',
+        title: `{{t("Process status", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Select',
         enum: [
-          { value: 'received', label: '{{t("Received")}}' },
-          { value: 'batched', label: '{{t("Batched")}}' },
-          { value: 'processing', label: '{{t("Processing")}}' },
-          { value: 'done', label: '{{t("Done")}}' },
-          { value: 'failed', label: '{{t("Failed")}}' },
-          { value: 'ignored', label: '{{t("Ignored")}}' },
+          { value: 'received', label: `{{t("Received", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'batched', label: `{{t("Batched", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'processing', label: `{{t("Processing", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'done', label: `{{t("Done", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'failed', label: `{{t("Failed", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'ignored', label: `{{t("Ignored", { ns: "${I18N_NAMESPACE}" })}}` },
         ],
       },
     },
@@ -204,7 +205,7 @@ export default defineCollection({
       interface: 'textarea',
       uiSchema: {
         type: 'string',
-        title: '{{t("Process error")}}',
+        title: `{{t("Process error", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input.TextArea',
       },
     },
@@ -214,13 +215,13 @@ export default defineCollection({
       interface: 'select',
       uiSchema: {
         type: 'string',
-        title: '{{t("Ignore reason")}}',
+        title: `{{t("Ignore reason", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Select',
         enum: [
-          { value: 'duplicate', label: '{{t("Duplicate")}}' },
-          { value: 'unsupported_type', label: '{{t("Unsupported type")}}' },
-          { value: 'bot_disabled', label: '{{t("Bot disabled")}}' },
-          { value: 'unbound_user', label: '{{t("Unbound user")}}' },
+          { value: 'duplicate', label: `{{t("Duplicate", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'unsupported_type', label: `{{t("Unsupported type", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'bot_disabled', label: `{{t("Bot disabled", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'unbound_user', label: `{{t("Unbound user", { ns: "${I18N_NAMESPACE}" })}}` },
         ],
       },
     },
@@ -231,7 +232,7 @@ export default defineCollection({
       interface: 'createdAt',
       uiSchema: {
         type: 'datetime',
-        title: '{{t("Created at")}}',
+        title: `{{t("Created at", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'DatePicker',
         'x-component-props': { dateFormat: 'YYYY-MM-DD', showTime: true },
         'x-read-pretty': true,
@@ -244,7 +245,7 @@ export default defineCollection({
       interface: 'updatedAt',
       uiSchema: {
         type: 'datetime',
-        title: '{{t("Last updated at")}}',
+        title: `{{t("Last updated at", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'DatePicker',
         'x-component-props': { dateFormat: 'YYYY-MM-DD', showTime: true },
         'x-read-pretty': true,
@@ -258,7 +259,7 @@ export default defineCollection({
       interface: 'm2o',
       uiSchema: {
         type: 'string',
-        title: '{{t("Bot")}}',
+        title: `{{t("Bot", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'AssociationField',
         'x-component-props': {
           multiple: false,
@@ -274,7 +275,7 @@ export default defineCollection({
       interface: 'm2o',
       uiSchema: {
         type: 'string',
-        title: '{{t("Conversation")}}',
+        title: `{{t("Conversation", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'AssociationField',
         'x-component-props': {
           multiple: false,
@@ -290,7 +291,7 @@ export default defineCollection({
       interface: 'm2o',
       uiSchema: {
         type: 'string',
-        title: '{{t("User")}}',
+        title: `{{t("User", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'AssociationField',
         'x-component-props': {
           multiple: false,
@@ -306,7 +307,7 @@ export default defineCollection({
       interface: 'm2o',
       uiSchema: {
         type: 'string',
-        title: '{{t("Task")}}',
+        title: `{{t("Task", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'AssociationField',
         'x-component-props': {
           multiple: false,

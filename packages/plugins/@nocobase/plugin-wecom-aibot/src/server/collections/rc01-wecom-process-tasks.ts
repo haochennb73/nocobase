@@ -8,6 +8,7 @@
  */
 
 import { defineCollection } from '@nocobase/database';
+import { I18N_NAMESPACE } from '../../constants';
 
 // Processing tasks produced by the aggregation window. One row = one batch of received messages
 // handed to the workflow (collection trigger) and finally to the AI employee instruction.
@@ -15,7 +16,7 @@ import { defineCollection } from '@nocobase/database';
 // workflows treat these fields as first-class no-code fields (display names come from locale).
 export default defineCollection({
   name: 'RC01_wecom_process_tasks',
-  title: '{{t("WeCom Process Tasks")}}',
+  title: `{{t("WeCom Process Tasks", { ns: "${I18N_NAMESPACE}" })}}`,
   dumpRules: { group: 'third-party' },
   // Registered into the collection manager (meta row via db2cm migration) so the
   // table is visible to data source management, block pickers and workflows
@@ -38,7 +39,7 @@ export default defineCollection({
       interface: 'input',
       uiSchema: {
         type: 'string',
-        title: '{{t("Batch key")}}',
+        title: `{{t("Batch key", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -50,7 +51,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("Bot ID")}}',
+        title: `{{t("Bot ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -62,7 +63,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("Conversation ID")}}',
+        title: `{{t("Conversation ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -73,7 +74,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("User ID")}}',
+        title: `{{t("User ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -84,11 +85,11 @@ export default defineCollection({
       interface: 'select',
       uiSchema: {
         type: 'string',
-        title: '{{t("Chat type")}}',
+        title: `{{t("Chat type", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Select',
         enum: [
-          { value: 'single', label: '{{t("Single chat")}}' },
-          { value: 'group', label: '{{t("Group chat")}}' },
+          { value: 'single', label: `{{t("Single chat", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'group', label: `{{t("Group chat", { ns: "${I18N_NAMESPACE}" })}}` },
         ],
       },
     },
@@ -99,7 +100,7 @@ export default defineCollection({
       interface: 'input',
       uiSchema: {
         type: 'string',
-        title: '{{t("Reply target")}}',
+        title: `{{t("Reply target", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -110,7 +111,7 @@ export default defineCollection({
       interface: 'input',
       uiSchema: {
         type: 'string',
-        title: '{{t("Last sender WeCom userid")}}',
+        title: `{{t("Last sender WeCom userid", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -121,7 +122,7 @@ export default defineCollection({
       interface: 'json',
       uiSchema: {
         type: 'object',
-        title: '{{t("Message IDs")}}',
+        title: `{{t("Message IDs", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input.JSON',
       },
     },
@@ -133,7 +134,7 @@ export default defineCollection({
       interface: 'textarea',
       uiSchema: {
         type: 'string',
-        title: '{{t("Aggregated content")}}',
+        title: `{{t("Aggregated content", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input.TextArea',
       },
     },
@@ -144,7 +145,7 @@ export default defineCollection({
       interface: 'textarea',
       uiSchema: {
         type: 'string',
-        title: '{{t("Context history")}}',
+        title: `{{t("Context history", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input.TextArea',
       },
     },
@@ -156,13 +157,13 @@ export default defineCollection({
       interface: 'select',
       uiSchema: {
         type: 'string',
-        title: '{{t("Task status")}}',
+        title: `{{t("Task status", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Select',
         enum: [
-          { value: 'pending', label: '{{t("Pending")}}' },
-          { value: 'processing', label: '{{t("Processing")}}' },
-          { value: 'done', label: '{{t("Done")}}' },
-          { value: 'failed', label: '{{t("Failed")}}' },
+          { value: 'pending', label: `{{t("Pending", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'processing', label: `{{t("Processing", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'done', label: `{{t("Done", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'failed', label: `{{t("Failed", { ns: "${I18N_NAMESPACE}" })}}` },
         ],
       },
     },
@@ -173,7 +174,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("Retry count")}}',
+        title: `{{t("Retry count", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -183,7 +184,7 @@ export default defineCollection({
       interface: 'input',
       uiSchema: {
         type: 'string',
-        title: '{{t("AI employee username")}}',
+        title: `{{t("AI employee username", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -193,7 +194,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("Workflow execution ID")}}',
+        title: `{{t("Workflow execution ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -203,7 +204,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("Reply message ID")}}',
+        title: `{{t("Reply message ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -213,7 +214,7 @@ export default defineCollection({
       interface: 'textarea',
       uiSchema: {
         type: 'string',
-        title: '{{t("Error")}}',
+        title: `{{t("Error", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input.TextArea',
       },
     },
@@ -224,7 +225,7 @@ export default defineCollection({
       interface: 'createdAt',
       uiSchema: {
         type: 'datetime',
-        title: '{{t("Created at")}}',
+        title: `{{t("Created at", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'DatePicker',
         'x-component-props': { dateFormat: 'YYYY-MM-DD', showTime: true },
         'x-read-pretty': true,
@@ -237,7 +238,7 @@ export default defineCollection({
       interface: 'updatedAt',
       uiSchema: {
         type: 'datetime',
-        title: '{{t("Last updated at")}}',
+        title: `{{t("Last updated at", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'DatePicker',
         'x-component-props': { dateFormat: 'YYYY-MM-DD', showTime: true },
         'x-read-pretty': true,
@@ -251,7 +252,7 @@ export default defineCollection({
       interface: 'm2o',
       uiSchema: {
         type: 'string',
-        title: '{{t("Bot")}}',
+        title: `{{t("Bot", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'AssociationField',
         'x-component-props': {
           multiple: false,
@@ -267,7 +268,7 @@ export default defineCollection({
       interface: 'm2o',
       uiSchema: {
         type: 'string',
-        title: '{{t("Conversation")}}',
+        title: `{{t("Conversation", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'AssociationField',
         'x-component-props': {
           multiple: false,
@@ -283,7 +284,7 @@ export default defineCollection({
       interface: 'm2o',
       uiSchema: {
         type: 'string',
-        title: '{{t("User")}}',
+        title: `{{t("User", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'AssociationField',
         'x-component-props': {
           multiple: false,
@@ -299,7 +300,7 @@ export default defineCollection({
       interface: 'm2o',
       uiSchema: {
         type: 'string',
-        title: '{{t("Reply message")}}',
+        title: `{{t("Reply message", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'AssociationField',
         'x-component-props': {
           multiple: false,

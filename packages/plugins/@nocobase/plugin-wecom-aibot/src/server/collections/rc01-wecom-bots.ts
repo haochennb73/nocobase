@@ -8,12 +8,13 @@
  */
 
 import { defineCollection } from '@nocobase/database';
+import { I18N_NAMESPACE } from '../../constants';
 
 // WeCom intelligent bot (aibot) configuration. One row = one bot with its long-connection credentials.
 // `secret` is stored encrypted via app.aesEncryptor at the service layer (see connection-manager).
 export default defineCollection({
   name: 'RC01_wecom_bots',
-  title: '{{t("WeCom AI Bots")}}',
+  title: `{{t("WeCom AI Bots", { ns: "${I18N_NAMESPACE}" })}}`,
   dumpRules: 'required',
   fields: [
     {
@@ -22,7 +23,7 @@ export default defineCollection({
       allowNull: false,
       uiSchema: {
         type: 'string',
-        title: '{{t("Bot name")}}',
+        title: `{{t("Bot name", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -33,7 +34,7 @@ export default defineCollection({
       unique: true,
       uiSchema: {
         type: 'string',
-        title: '{{t("Bot ID")}}',
+        title: `{{t("Bot ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -44,7 +45,7 @@ export default defineCollection({
       hidden: true,
       uiSchema: {
         type: 'string',
-        title: '{{t("Secret")}}',
+        title: `{{t("Secret", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Password',
       },
     },
@@ -54,7 +55,7 @@ export default defineCollection({
       defaultValue: true,
       uiSchema: {
         type: 'boolean',
-        title: '{{t("Enabled")}}',
+        title: `{{t("Enabled", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Checkbox',
       },
     },
@@ -64,7 +65,7 @@ export default defineCollection({
       defaultValue: 'disconnected',
       uiSchema: {
         type: 'string',
-        title: '{{t("Connection status")}}',
+        title: `{{t("Connection status", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -73,7 +74,7 @@ export default defineCollection({
       name: 'lastConnectedAt',
       uiSchema: {
         type: 'date',
-        title: '{{t("Last connected at")}}',
+        title: `{{t("Last connected at", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'DatePicker',
         'x-component-props': { showTime: true },
       },
@@ -83,7 +84,7 @@ export default defineCollection({
       name: 'lastError',
       uiSchema: {
         type: 'string',
-        title: '{{t("Last error")}}',
+        title: `{{t("Last error", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input.TextArea',
       },
     },
@@ -93,7 +94,7 @@ export default defineCollection({
       defaultValue: true,
       uiSchema: {
         type: 'boolean',
-        title: '{{t("Require user binding")}}',
+        title: `{{t("Require user binding", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Checkbox',
       },
     },
@@ -102,7 +103,7 @@ export default defineCollection({
       name: 'unboundReplyText',
       uiSchema: {
         type: 'string',
-        title: '{{t("Unbound user reply text")}}',
+        title: `{{t("Unbound user reply text", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input.TextArea',
       },
     },
@@ -112,7 +113,7 @@ export default defineCollection({
       defaultValue: 10000,
       uiSchema: {
         type: 'number',
-        title: '{{t("Aggregation window (ms)")}}',
+        title: `{{t("Aggregation window (ms)", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -122,7 +123,7 @@ export default defineCollection({
       defaultValue: 60000,
       uiSchema: {
         type: 'number',
-        title: '{{t("Max aggregation window (ms)")}}',
+        title: `{{t("Max aggregation window (ms)", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -132,7 +133,7 @@ export default defineCollection({
       defaultValue: 5,
       uiSchema: {
         type: 'number',
-        title: '{{t("History rounds")}}',
+        title: `{{t("History rounds", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -142,7 +143,7 @@ export default defineCollection({
       defaultValue: 25,
       uiSchema: {
         type: 'number',
-        title: '{{t("Send rate limit (per minute)")}}',
+        title: `{{t("Send rate limit (per minute)", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -151,7 +152,7 @@ export default defineCollection({
       name: 'welcomeMessage',
       uiSchema: {
         type: 'string',
-        title: '{{t("Welcome message")}}',
+        title: `{{t("Welcome message", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input.TextArea',
       },
     },
@@ -160,7 +161,7 @@ export default defineCollection({
       name: 'description',
       uiSchema: {
         type: 'string',
-        title: '{{t("Description")}}',
+        title: `{{t("Description", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input.TextArea',
       },
     },

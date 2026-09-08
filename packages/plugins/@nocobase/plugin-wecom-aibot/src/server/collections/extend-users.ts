@@ -8,6 +8,7 @@
  */
 
 import { extendCollection } from '@nocobase/database';
+import { I18N_NAMESPACE } from '../../constants';
 
 // WeCom user binding (Phase 1): extend the core users table with the WeCom userid field.
 // Maintained manually by administrators; resolved from the `from.userid` of inbound bot frames.
@@ -23,7 +24,7 @@ export const wecomUserIdField = {
   interface: 'input',
   uiSchema: {
     type: 'string',
-    title: '{{t("WeCom UserID")}}',
+    title: `{{t("WeCom UserID", { ns: "${I18N_NAMESPACE}" })}}`,
     'x-component': 'Input',
   },
 };

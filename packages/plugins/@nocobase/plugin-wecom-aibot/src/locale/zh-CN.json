@@ -104,6 +104,12 @@
   "WeCom Received Messages": "企微接收消息",
   "WeCom Send Messages": "企微发送消息",
   "WeCom Process Tasks": "企微处理任务",
+  "WeCom AI Bots": "企微智能机器人",
+  "Bot name": "机器人名称",
+  "Unbound user reply text": "未绑定用户引导回复",
+  "Aggregation window (ms)": "聚合窗口（毫秒）",
+  "Max aggregation window (ms)": "聚合窗口上限（毫秒）",
+  "Send rate limit (per minute)": "发送限速（条/分钟）",
 
   "Conversation ID": "会话 ID",
   "User ID": "用户 ID",

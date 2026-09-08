@@ -8,13 +8,14 @@
  */
 
 import { defineCollection } from '@nocobase/database';
+import { I18N_NAMESPACE } from '../../constants';
 
 // One row = one single/group chat conversation under a bot. Used for multi-turn context and ownership tracing.
 // Every field carries `interface` + `uiSchema` so the collection manager, block pickers and
 // workflows treat these fields as first-class no-code fields (display names come from locale).
 export default defineCollection({
   name: 'RC01_wecom_conversations',
-  title: '{{t("WeCom Conversations")}}',
+  title: `{{t("WeCom Conversations", { ns: "${I18N_NAMESPACE}" })}}`,
   dumpRules: { group: 'third-party' },
   // Registered into the collection manager (meta row via db2cm migration) so the
   // table is visible to data source management, block pickers and workflows.
@@ -34,7 +35,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("Bot ID")}}',
+        title: `{{t("Bot ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -45,7 +46,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("User ID")}}',
+        title: `{{t("User ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -56,11 +57,11 @@ export default defineCollection({
       interface: 'select',
       uiSchema: {
         type: 'string',
-        title: '{{t("Chat type")}}',
+        title: `{{t("Chat type", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Select',
         enum: [
-          { value: 'single', label: '{{t("Single chat")}}' },
-          { value: 'group', label: '{{t("Group chat")}}' },
+          { value: 'single', label: `{{t("Single chat", { ns: "${I18N_NAMESPACE}" })}}` },
+          { value: 'group', label: `{{t("Group chat", { ns: "${I18N_NAMESPACE}" })}}` },
         ],
       },
     },
@@ -71,7 +72,7 @@ export default defineCollection({
       interface: 'input',
       uiSchema: {
         type: 'string',
-        title: '{{t("Chat key")}}',
+        title: `{{t("Chat key", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -81,7 +82,7 @@ export default defineCollection({
       interface: 'input',
       uiSchema: {
         type: 'string',
-        title: '{{t("WeCom userid")}}',
+        title: `{{t("WeCom userid", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -91,7 +92,7 @@ export default defineCollection({
       interface: 'input',
       uiSchema: {
         type: 'string',
-        title: '{{t("Display name")}}',
+        title: `{{t("Display name", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -101,7 +102,7 @@ export default defineCollection({
       interface: 'input',
       uiSchema: {
         type: 'string',
-        title: '{{t("AI session id")}}',
+        title: `{{t("AI session id", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
@@ -112,7 +113,7 @@ export default defineCollection({
       interface: 'datetime',
       uiSchema: {
         type: 'string',
-        title: '{{t("Last active at")}}',
+        title: `{{t("Last active at", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'DatePicker',
         'x-component-props': { showTime: true },
       },
@@ -124,7 +125,7 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: {
         type: 'number',
-        title: '{{t("Message count")}}',
+        title: `{{t("Message count", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
@@ -135,7 +136,7 @@ export default defineCollection({
       interface: 'createdAt',
       uiSchema: {
         type: 'datetime',
-        title: '{{t("Created at")}}',
+        title: `{{t("Created at", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'DatePicker',
         'x-component-props': { dateFormat: 'YYYY-MM-DD', showTime: true },
         'x-read-pretty': true,
@@ -148,7 +149,7 @@ export default defineCollection({
       interface: 'updatedAt',
       uiSchema: {
         type: 'datetime',
-        title: '{{t("Last updated at")}}',
+        title: `{{t("Last updated at", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'DatePicker',
         'x-component-props': { dateFormat: 'YYYY-MM-DD', showTime: true },
         'x-read-pretty': true,
@@ -162,7 +163,7 @@ export default defineCollection({
       interface: 'm2o',
       uiSchema: {
         type: 'string',
-        title: '{{t("Bot")}}',
+        title: `{{t("Bot", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'AssociationField',
         'x-component-props': {
           multiple: false,
@@ -178,7 +179,7 @@ export default defineCollection({
       interface: 'm2o',
       uiSchema: {
         type: 'string',
-        title: '{{t("User")}}',
+        title: `{{t("User", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'AssociationField',
         'x-component-props': {
           multiple: false,

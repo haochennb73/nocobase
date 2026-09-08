@@ -15,6 +15,13 @@ export const COLLECTIONS = {
   processTasks: 'RC01_wecom_process_tasks',
 } as const;
 
+// i18n namespace carrying every user-facing title shipped by this plugin (collection
+// titles, field titles, enum labels). Templates in collection definitions MUST spell it
+// out — a bare {{t("Key")}} compiles against the core 'client' namespace, where
+// plugin-only keys are missing and fall back to raw English (same convention as
+// plugin-workflow-manual's `{{t("Task title", { ns: "workflow-manual" })}}`).
+export const I18N_NAMESPACE = '@nocobase/plugin-wecom-aibot';
+
 export type CollectionKey = keyof typeof COLLECTIONS;
 
 // Connection lifecycle status of a bot's long connection (written back by ConnectionManager).

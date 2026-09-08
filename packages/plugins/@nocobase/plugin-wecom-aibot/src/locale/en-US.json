@@ -104,6 +104,12 @@
   "WeCom Received Messages": "WeCom Received Messages",
   "WeCom Send Messages": "WeCom Send Messages",
   "WeCom Process Tasks": "WeCom Process Tasks",
+  "WeCom AI Bots": "WeCom AI Bots",
+  "Bot name": "Bot name",
+  "Unbound user reply text": "Unbound user reply text",
+  "Aggregation window (ms)": "Aggregation window (ms)",
+  "Max aggregation window (ms)": "Max aggregation window (ms)",
+  "Send rate limit (per minute)": "Send rate limit (per minute)",
 
   "Conversation ID": "Conversation ID",
   "User ID": "User ID",
