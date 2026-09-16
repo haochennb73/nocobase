@@ -25,6 +25,9 @@ function seedFakeClient(connectionManager: ConnectionManager, botDbId: number, c
   manager.runtimes.set(botDbId, { client, startedAt: Date.now() });
 }
 
+/** Configured on the fixture bot so the "retries exhausted" branch is reachable without waiting for the backoff. */
+const BOT_MAX_SEND_RETRIES = 2;
+
 describe('wecom-aibot services', () => {
   let app: MockServer | undefined;
   let db: Database;
@@ -73,6 +76,7 @@ describe('wecom-aibot services', () => {
         maxWindowMs: 5000,
         historyRounds: 3,
         sendRatePerMin: 30,
+        maxSendRetries: BOT_MAX_SEND_RETRIES,
       },
     });
     botDbId = Number(bot.get('id'));
@@ -206,6 +210,100 @@ describe('wecom-aibot services', () => {
     expect(failed?.get('sendStatus')).toBe(SEND_STATUS.failed);
     expect(Number(failed?.get('retryCount'))).toBe(1);
     expect(String(failed?.get('sendError'))).toContain('boom');
+  });
+
+  /** A conversation plus its task, i.e. the state WF-A leaves behind before the reply is sent. */
+  const seedTaskScenario = async (chatKey: string, taskStatus: string, retryCount: number) => {
+    const conversation = await db.getRepository(COLLECTIONS.conversations).create({
+      values: {
+        botId: botDbId,
+        userId: boundUserId,
+        chatType: 'single',
+        chatKey,
+        fromUserId: 'wx-bound-001',
+        displayName: chatKey,
+        lastActiveAt: new Date(),
+        messageCount: 0,
+      },
+    });
+    const conversationId = Number(conversation.get('id'));
+    const task = await db.getRepository(COLLECTIONS.processTasks).create({
+      values: {
+        batchKey: randomUUID(),
+        botId: botDbId,
+        conversationId,
+        userId: boundUserId,
+        chatType: 'single',
+        toChatId: chatKey,
+        fromUserId: 'wx-bound-001',
+        messageIds: [],
+        aggregatedContent: 'question for a failing send',
+        taskStatus,
+      },
+    });
+    const taskId = Number(task.get('id'));
+    await db.getRepository(COLLECTIONS.sendMessages).create({
+      values: {
+        botId: botDbId,
+        conversationId,
+        taskId,
+        userId: boundUserId,
+        kind: 'reply',
+        chatType: 'single',
+        toChatId: chatKey,
+        content: 'will fail',
+        sendStatus: SEND_STATUS.pending,
+        retryCount,
+      },
+    });
+    return { conversationId, taskId };
+  };
+
+  it('fails the owning task once the configured send retries are exhausted', async () => {
+    seedFakeClient(requireServices().connectionManager, botDbId, {
+      sendMessage: async () => {
+        throw new Error('boom');
+      },
+    } as unknown as WSClient);
+
+    // retryCount already at the bot's limit: this attempt is the last one.
+    const { taskId } = await seedTaskScenario('wx-fail-terminal', TASK_STATUS.processing, BOT_MAX_SEND_RETRIES - 1);
+
+    await sleep(400);
+
+    const failedTask = await db.getRepository(COLLECTIONS.processTasks).findOne({ filterByTk: taskId });
+    expect(failedTask?.get('taskStatus')).toBe(TASK_STATUS.failed);
+    expect(String(failedTask?.get('error'))).toContain('boom');
+  });
+
+  it('leaves the task processing while send retries remain', async () => {
+    seedFakeClient(requireServices().connectionManager, botDbId, {
+      sendMessage: async () => {
+        throw new Error('boom');
+      },
+    } as unknown as WSClient);
+
+    const { taskId } = await seedTaskScenario('wx-fail-retrying', TASK_STATUS.processing, 0);
+
+    await sleep(400);
+
+    const task = await db.getRepository(COLLECTIONS.processTasks).findOne({ filterByTk: taskId });
+    expect(task?.get('taskStatus')).toBe(TASK_STATUS.processing);
+  });
+
+  it('does not un-complete an already done task when a late send fails', async () => {
+    seedFakeClient(requireServices().connectionManager, botDbId, {
+      sendMessage: async () => {
+        throw new Error('boom');
+      },
+    } as unknown as WSClient);
+
+    const { taskId } = await seedTaskScenario('wx-fail-done', TASK_STATUS.done, BOT_MAX_SEND_RETRIES - 1);
+
+    await sleep(400);
+
+    const task = await db.getRepository(COLLECTIONS.processTasks).findOne({ filterByTk: taskId });
+    expect(task?.get('taskStatus')).toBe(TASK_STATUS.done);
   });
 
   it('renders completed rounds as context history', async () => {

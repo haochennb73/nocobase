@@ -62,6 +62,8 @@
   "How many recent completed Q&A rounds are injected into each task for multi-turn context.": "How many recent completed Q&A rounds are injected into each task for multi-turn context.",
   "Send rate limit (msgs/min)": "Send rate limit (msgs/min)",
   "Keep it below the official cap of 30 messages per minute per bot.": "Keep it below the official cap of 30 messages per minute per bot.",
+  "Send retry limit": "Send retry limit",
+  "Failed sends are retried automatically with exponential backoff up to this many times. Once exhausted the send is marked failed and so is its task; set 0 to fail immediately. Flip the task status back to Pending to run the workflow again.": "Failed sends are retried automatically with exponential backoff up to this many times. Once exhausted the send is marked failed and so is its task; set 0 to fail immediately. Flip the task status back to Pending to run the workflow again.",
   "Welcome message": "Welcome message",
   "Sent within 5 seconds when a user opens the chat for the day.": "Sent within 5 seconds when a user opens the chat for the day.",
 

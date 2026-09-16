@@ -91,8 +91,9 @@ export type ChatType = (typeof CHAT_TYPE)[keyof typeof CHAT_TYPE];
 // Inbound message types that carry processable text (Phase 1: text + mixed extracted text).
 export const TEXT_MSG_TYPES = ['text', 'mixed'] as const;
 
-// Max retries for outbound sending before a record is finally marked failed.
-export const MAX_SEND_RETRIES = 3;
+// Default of the per-bot `maxSendRetries` setting: how many times a failed send is retried before
+// the record is finally marked failed and its task is marked failed with it.
+export const DEFAULT_MAX_SEND_RETRIES = 3;
 
 // Upper bound of the per-bot outbound queue. Records beyond it are rejected immediately.
 export const MAX_OUTBOUND_QUEUE_SIZE = 200;

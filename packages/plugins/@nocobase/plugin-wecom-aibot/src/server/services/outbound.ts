@@ -10,8 +10,8 @@
 import type { Model, Repository } from '@nocobase/database';
 import {
   COLLECTIONS,
+  DEFAULT_MAX_SEND_RETRIES,
   MAX_OUTBOUND_QUEUE_SIZE,
-  MAX_SEND_RETRIES,
   PROCESS_STATUS,
   SEND_KIND,
   SEND_STATUS,
@@ -76,6 +76,7 @@ export class OutboundService {
         filterByTk: recordId,
         values: { sendStatus: SEND_STATUS.failed, sendError: 'send queue is full' },
       });
+      await this.markTaskFailed(record, 'send queue is full');
       this.logger.warn(`[wecom-aibot] outbound queue of bot#${botDbId} is full, record#${recordId} rejected`);
       return;
     }
@@ -178,14 +179,15 @@ export class OutboundService {
         filterByTk: recordId,
         values: { sendStatus: SEND_STATUS.failed, sendError: 'bot is disabled' },
       });
+      await this.markTaskFailed(record, 'bot is disabled');
       return;
     }
     await this.ensureBucket(botDbId, Number(bot.get('sendRatePerMin') || 25));
+    const maxSendRetries = this.maxSendRetriesOf(bot);
 
     const client = this.ctx.connectionManager?.getClient(botDbId);
     if (!client) {
-      await this.markFailed(sendRepo, record, 'bot connection is not available');
-      this.scheduleRetry(botDbId, recordId, Number(record.get('retryCount') || 0) + 1);
+      await this.failSend(sendRepo, record, 'bot connection is not available', maxSendRetries);
       return;
     }
 
@@ -210,8 +212,7 @@ export class OutboundService {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.markFailed(sendRepo, record, message);
-      this.scheduleRetry(botDbId, recordId, Number(record.get('retryCount') || 0) + 1);
+      await this.failSend(sendRepo, record, message, maxSendRetries);
     } finally {
       this.activeCount -= 1;
     }
@@ -266,6 +267,28 @@ export class OutboundService {
     });
   }
 
+  /** The bot's configured retry limit, falling back to the default for rows created before the setting existed. */
+  private maxSendRetriesOf(bot: Model): number {
+    const configured = bot.get('maxSendRetries');
+    return configured == null ? DEFAULT_MAX_SEND_RETRIES : Math.max(0, Number(configured));
+  }
+
+  /** Record the failure, schedule the automatic retry, and fail the owning task once retries run out. */
+  private async failSend(
+    sendRepo: Repository,
+    record: Model,
+    sendError: string,
+    maxSendRetries: number,
+  ): Promise<void> {
+    await this.markFailed(sendRepo, record, sendError);
+    const retryCountAfterFailure = Number(record.get('retryCount') || 0) + 1;
+    if (
+      !this.scheduleRetry(Number(record.get('botId')), Number(record.get('id')), retryCountAfterFailure, maxSendRetries)
+    ) {
+      await this.markTaskFailed(record, sendError);
+    }
+  }
+
   private async markFailed(sendRepo: Repository, record: Model, sendError: string): Promise<void> {
     await sendRepo.update({
       filterByTk: record.get('id'),
@@ -278,10 +301,33 @@ export class OutboundService {
     this.logger.warn(`[wecom-aibot] send record#${record.get('id')} failed: ${sendError}`);
   }
 
-  /** Automatic exponential backoff retry while retryCount < MAX_SEND_RETRIES. */
-  private scheduleRetry(botDbId: number, recordId: number, retryCountAfterFailure: number): void {
-    if (retryCountAfterFailure >= MAX_SEND_RETRIES) {
+  /**
+   * Terminal send failure: mirror it onto the owning task so the batch stops being "processing".
+   *
+   * `taskStatus=pending` is the workflow's retry entry point — the collection trigger listens to
+   * updates as well, so flipping the task back to `pending` re-runs WF-A. A task that already
+   * reached `done` is left alone (a later send of the same batch must not un-complete it).
+   */
+  private async markTaskFailed(record: Model, taskError: string): Promise<void> {
+    const taskId = record.get('taskId') ? Number(record.get('taskId')) : null;
+    if (!taskId) {
       return;
+    }
+    await this.db.getRepository(COLLECTIONS.processTasks).update({
+      filter: { id: taskId, taskStatus: { $ne: TASK_STATUS.done } },
+      values: { taskStatus: TASK_STATUS.failed, error: taskError.slice(0, 2000) },
+    });
+  }
+
+  /** Automatic exponential backoff retry while retryCount < the bot's limit; returns whether one was scheduled. */
+  private scheduleRetry(
+    botDbId: number,
+    recordId: number,
+    retryCountAfterFailure: number,
+    maxSendRetries: number,
+  ): boolean {
+    if (retryCountAfterFailure >= maxSendRetries) {
+      return false;
     }
     const delay = RETRY_DELAYS_MS[Math.min(retryCountAfterFailure, RETRY_DELAYS_MS.length) - 1] || 30000;
     setTimeout(() => {
@@ -289,6 +335,7 @@ export class OutboundService {
         this.logger.warn(`[wecom-aibot] scheduled retry failed: ${err instanceof Error ? err.message : err}`);
       });
     }, delay);
+    return true;
   }
 
   private async retryRecord(botDbId: number, recordId: number): Promise<void> {

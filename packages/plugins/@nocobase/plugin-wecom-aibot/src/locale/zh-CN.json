@@ -62,6 +62,8 @@
   "How many recent completed Q&A rounds are injected into each task for multi-turn context.": "每个任务注入最近多少轮已完成的问答，用于多轮对话上下文。",
   "Send rate limit (msgs/min)": "发送限速（条/分钟）",
   "Keep it below the official cap of 30 messages per minute per bot.": "请保持在官方上限（每个机器人每分钟 30 条）以内。",
+  "Send retry limit": "发送失败重试次数",
+  "Failed sends are retried automatically with exponential backoff up to this many times. Once exhausted the send is marked failed and so is its task; set 0 to fail immediately. Flip the task status back to Pending to run the workflow again.": "发送失败的记录会按退避间隔自动重试，最多这么多次。重试用尽后该记录置为「失败」，同时把所属任务置为「失败」；填 0 表示不重试、直接失败。若想再试一次，把任务状态改回「待处理」即可重新触发工作流。",
   "Welcome message": "欢迎语",
   "Sent within 5 seconds when a user opens the chat for the day.": "用户当天首次进入会话时，5 秒内发送欢迎语。",
 

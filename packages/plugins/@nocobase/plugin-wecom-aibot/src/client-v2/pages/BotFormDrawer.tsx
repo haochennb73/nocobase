@@ -30,6 +30,7 @@ export interface BotRecord {
   maxWindowMs?: number;
   historyRounds?: number;
   sendRatePerMin?: number;
+  maxSendRetries?: number;
   welcomeMessage?: string;
   description?: string;
 }
@@ -56,6 +57,7 @@ export function BotFormView(props: { mode: 'create' | 'edit'; record?: BotRecord
       maxWindowMs: 60000,
       historyRounds: 5,
       sendRatePerMin: 25,
+      maxSendRetries: 3,
     };
   }, [props.mode, props.record]);
 
@@ -156,6 +158,15 @@ export function BotFormView(props: { mode: 'create' | 'edit'; record?: BotRecord
           extra={t('Keep it below the official cap of 30 messages per minute per bot.')}
         >
           <InputNumber min={1} max={30} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item
+          name="maxSendRetries"
+          label={t('Send retry limit')}
+          extra={t(
+            'Failed sends are retried automatically with exponential backoff up to this many times. Once exhausted the send is marked failed and so is its task; set 0 to fail immediately. Flip the task status back to Pending to run the workflow again.',
+          )}
+        >
+          <InputNumber min={0} max={10} style={{ width: '100%' }} />
         </Form.Item>
         <Form.Item
           name="welcomeMessage"

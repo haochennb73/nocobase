@@ -8,7 +8,7 @@
  */
 
 import { defineCollection } from '@nocobase/database';
-import { I18N_NAMESPACE } from '../../constants';
+import { DEFAULT_MAX_SEND_RETRIES, I18N_NAMESPACE } from '../../constants';
 
 // WeCom intelligent bot (aibot) configuration. One row = one bot with its long-connection credentials.
 // `secret` is stored encrypted via app.aesEncryptor at the service layer (see connection-manager).
@@ -144,6 +144,16 @@ export default defineCollection({
       uiSchema: {
         type: 'number',
         title: `{{t("Send rate limit (per minute)", { ns: "${I18N_NAMESPACE}" })}}`,
+        'x-component': 'InputNumber',
+      },
+    },
+    {
+      type: 'integer',
+      name: 'maxSendRetries',
+      defaultValue: DEFAULT_MAX_SEND_RETRIES,
+      uiSchema: {
+        type: 'number',
+        title: `{{t("Send retry limit", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'InputNumber',
       },
     },
