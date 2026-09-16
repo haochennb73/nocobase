@@ -9,6 +9,7 @@
 
 import { defineCollection } from '@nocobase/database';
 import { I18N_NAMESPACE } from '../../constants';
+import { primaryIdField } from './id-field';
 
 // Outbound messages (replies / active pushes). Workflows create `pending` rows;
 // the plugin outbound service rate-limits, sends via the long connection and writes back status.
@@ -28,6 +29,7 @@ export default defineCollection({
     },
   ],
   fields: [
+    primaryIdField,
     {
       type: 'bigInt',
       name: 'botId',

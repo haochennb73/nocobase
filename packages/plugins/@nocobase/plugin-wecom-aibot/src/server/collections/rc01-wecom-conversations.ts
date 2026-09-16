@@ -9,6 +9,7 @@
 
 import { defineCollection } from '@nocobase/database';
 import { I18N_NAMESPACE } from '../../constants';
+import { primaryIdField } from './id-field';
 
 // One row = one single/group chat conversation under a bot. Used for multi-turn context and ownership tracing.
 // Every field carries `interface` + `uiSchema` so the collection manager, block pickers and
@@ -27,6 +28,7 @@ export default defineCollection({
     },
   ],
   fields: [
+    primaryIdField,
     {
       type: 'bigInt',
       name: 'botId',

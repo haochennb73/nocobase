@@ -9,6 +9,7 @@
 
 import { defineCollection } from '@nocobase/database';
 import { I18N_NAMESPACE } from '../../constants';
+import { primaryIdField } from './id-field';
 
 // Inbound messages received from WeCom bots. `msgId` unique index provides idempotency.
 // Every field carries `interface` + `uiSchema` so the collection manager, block pickers and
@@ -29,6 +30,7 @@ export default defineCollection({
     },
   ],
   fields: [
+    primaryIdField,
     {
       type: 'string',
       name: 'msgId',

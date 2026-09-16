@@ -9,6 +9,7 @@
 
 import { defineCollection } from '@nocobase/database';
 import { I18N_NAMESPACE } from '../../constants';
+import { primaryIdField } from './id-field';
 
 // Processing tasks produced by the aggregation window. One row = one batch of received messages
 // handed to the workflow (collection trigger) and finally to the AI employee instruction.
@@ -31,6 +32,7 @@ export default defineCollection({
     },
   ],
   fields: [
+    primaryIdField,
     {
       type: 'uuid',
       name: 'batchKey',
