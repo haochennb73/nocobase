@@ -583,10 +583,31 @@ function stringifyContent(content: unknown) {
   }
 }
 
+// 非安全上下文或权限被拒时 navigator.clipboard 不可用，退回 execCommand 以保证复制可用。
+function fallbackCopyText(text: string) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand('copy');
+  } catch (error) {
+    console.error(error);
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
 function copyText(content: unknown) {
   const text = stringifyContent(content);
   if (!text) {
     return;
   }
-  navigator.clipboard?.writeText(text).catch(console.error);
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopyText(text));
+    return;
+  }
+  fallbackCopyText(text);
 }

@@ -130,9 +130,36 @@ export const CodeBasic: React.FC<CodeProps> = ({ children, className, node, ...r
     );
   }
 
+  // 非安全上下文或权限被拒时 navigator.clipboard 不可用，退回 execCommand 以保证复制可用。
+  const fallbackCopy = (text: string) => {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      message.success(t('Copied'));
+    } catch {
+      message.error(t('Copy failed'));
+    }
+    document.body.removeChild(textarea);
+  };
+
   const copy = () => {
-    navigator.clipboard.writeText(value);
-    message.success(t('Copied'));
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(value)
+        .then(() => {
+          message.success(t('Copied'));
+        })
+        .catch(() => {
+          fallbackCopy(value);
+        });
+    } else {
+      fallbackCopy(value);
+    }
   };
 
   return (
@@ -182,9 +209,36 @@ export const Code: React.FC<CodeProps> = observer(({ children, className, node, 
     );
   }
 
+  // 非安全上下文或权限被拒时 navigator.clipboard 不可用，退回 execCommand 以保证复制可用。
+  const fallbackCopy = (text: string) => {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      message.success(t('Copied'));
+    } catch {
+      message.error(t('Copy failed'));
+    }
+    document.body.removeChild(textarea);
+  };
+
   const copy = () => {
-    navigator.clipboard.writeText(value);
-    message.success(t('Copied'));
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(value)
+        .then(() => {
+          message.success(t('Copied'));
+        })
+        .catch(() => {
+          fallbackCopy(value);
+        });
+    } else {
+      fallbackCopy(value);
+    }
   };
   const canApply = !!editorRef && isSupportLanguage(language);
   let isFullText = true;

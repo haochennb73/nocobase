@@ -78,6 +78,36 @@ export const ChartGeneratorCard: React.FC<ToolsUIProperties<ChartGeneratorArgs>>
     borderWidth: 0,
   };
 
+  // 非安全上下文或权限被拒时 navigator.clipboard 不可用，退回 execCommand 以保证复制可用。
+  const fallbackCopy = (text: string) => {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      message.success(t('Copied'));
+    } catch {
+      message.error(t('Copy failed'));
+    }
+    document.body.removeChild(textarea);
+  };
+
+  const copyError = async (error: Error) => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(error.message);
+        message.success(t('Copied'));
+        return;
+      } catch {
+        // 剪切板写入失败（权限被拒等），继续走兜底
+      }
+    }
+    fallbackCopy(error.message);
+  };
+
   return (
     <ChartErrorBoundary
       resetKey={options}
@@ -90,15 +120,7 @@ export const ChartGeneratorCard: React.FC<ToolsUIProperties<ChartGeneratorArgs>>
             description={
               <>
                 {error.message}{' '}
-                <Button
-                  icon={<CopyOutlined />}
-                  variant="link"
-                  color="primary"
-                  onClick={() => {
-                    navigator.clipboard.writeText(error.message);
-                    message.success(t('Copied'));
-                  }}
-                />
+                <Button icon={<CopyOutlined />} variant="link" color="primary" onClick={() => copyError(error)} />
               </>
             }
           />
