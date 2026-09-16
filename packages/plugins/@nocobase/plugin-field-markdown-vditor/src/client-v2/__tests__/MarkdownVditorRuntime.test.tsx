@@ -90,11 +90,12 @@ describe('MarkdownVditorRuntime', () => {
     });
     const runtime = new MarkdownVditorRuntime(
       {
+        getCdnUrl: () => '/admin/',
         requirejs: {
           require: requireFn,
         },
       } as never,
-      () => '/v2/',
+      () => '/v2/admin/',
     );
 
     expect(() => runtime.initVditorDependency()).not.toThrow();

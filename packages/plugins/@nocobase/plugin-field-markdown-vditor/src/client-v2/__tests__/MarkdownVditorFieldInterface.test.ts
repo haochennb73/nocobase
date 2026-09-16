@@ -28,6 +28,7 @@ describe('MarkdownVditorFieldInterface', () => {
       app: {
         addComponents: typeof addComponents;
         addFieldInterfaces: typeof addFieldInterfaces;
+        getCdnUrl: () => string;
         getPublicPath: () => string;
         requirejs: {
           require: typeof requireFn;
@@ -44,6 +45,7 @@ describe('MarkdownVditorFieldInterface', () => {
     plugin.app = {
       addComponents,
       addFieldInterfaces,
+      getCdnUrl: () => '/admin/',
       getPublicPath: () => '/v2/',
       requirejs: {
         require: requireFn,
