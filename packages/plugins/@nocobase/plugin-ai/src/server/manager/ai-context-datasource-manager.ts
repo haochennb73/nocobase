@@ -12,7 +12,8 @@ import { AIContextDatasource } from '../../collections/ai-context-datasource';
 import PluginAIServer from '../plugin';
 import { WorkContext, WorkContextResolveStrategy } from '../types';
 import { Context } from '@nocobase/actions';
-import { checkFilterParams, parseJsonTemplate } from '@nocobase/acl';
+import { checkFilterParams, createUserProvider, parseJsonTemplate } from '@nocobase/acl';
+import type { FieldOptions, ICollection, IRelationField } from '@nocobase/data-source-manager';
 
 function serializeQueryFieldValue(value: unknown): unknown {
   if (value === null || value === undefined) {
@@ -49,6 +50,48 @@ function serializeQueryFieldValue(value: unknown): unknown {
   }
 
   return value;
+}
+
+function getRecordFieldValue(record: unknown, field: string): unknown {
+  return field.split('.').reduce((current, key) => {
+    if (current === null || current === undefined) {
+      return current;
+    }
+
+    if (typeof (current as { get?: unknown }).get === 'function') {
+      return (current as { get: (key: string) => unknown }).get(key);
+    }
+
+    return (current as Record<string, unknown>)[key];
+  }, record);
+}
+
+function getQueryFieldOptions(collection: ICollection, field: string): FieldOptions | undefined {
+  const parts = field.split('.');
+  let currentCollection: ICollection | undefined = collection;
+
+  for (const [index, part] of parts.entries()) {
+    const currentField = currentCollection?.getField(part);
+    if (!currentField) {
+      return;
+    }
+
+    if (index === parts.length - 1) {
+      return currentField.options;
+    }
+
+    if (!currentField.isRelationField()) {
+      return;
+    }
+
+    currentCollection = (currentField as IRelationField).targetCollection();
+  }
+}
+
+function getTimezone(ctx: Context): string | undefined {
+  const timezone =
+    ctx?.request?.get?.('x-timezone') ?? ctx?.request?.header?.['x-timezone'] ?? ctx?.req?.headers?.['x-timezone'];
+  return Array.isArray(timezone) ? timezone[0] : timezone || undefined;
 }
 
 export class AIContextDatasourceManager {
@@ -115,7 +158,13 @@ export class AIContextDatasourceManager {
       }
 
       checkFilterParams(collection, can.params?.filter);
-      const parsedParams = can.params ? await parseJsonTemplate(can.params, ctx) : {};
+      const parsedParams = can.params
+        ? await parseJsonTemplate(can.params, {
+            state: ctx.state,
+            timezone: getTimezone(ctx),
+            userProvider: createUserProvider({ db: ctx.db, currentUser: ctx.state?.currentUser }),
+          })
+        : {};
 
       if (parsedParams.appends && options.fields) {
         for (const queryField of options.fields) {
@@ -150,17 +199,17 @@ export class AIContextDatasourceManager {
       });
     }
 
-    const { fields, filter, sort, offset, limit } = options;
-    const result = await collection.repository.find({ fields, filter, sort, offset: offset ?? 0, limit });
+    const { fields, appends, filter, sort, offset, limit } = options;
+    const result = await collection.repository.find({ fields, appends, filter, sort, offset: offset ?? 0, limit });
     const total = await collection.repository.count({ fields, filter });
 
     const records = result.map((x) =>
       fields.map((field) => {
-        const { name, type } = collection.getField(field)?.options || {};
-        const value = serializeQueryFieldValue(x[field]);
+        const { name, type } = getQueryFieldOptions(collection, field) || {};
+        const value = serializeQueryFieldValue(getRecordFieldValue(x, field));
         return {
-          name,
-          type,
+          name: field.includes('.') ? field : name || field,
+          type: type || 'unknown',
           value,
         };
       }),

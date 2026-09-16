@@ -8,12 +8,20 @@
  */
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { allowMock, flowModelRendererSpy } = vi.hoisted(() => {
+const { allowMock, appMock, flowModelRendererSpy } = vi.hoisted(() => {
   return {
     allowMock: vi.fn(),
+    appMock: {
+      current: {
+        router: {
+          getBasename: () => '/nocobase/v',
+        },
+      },
+    },
     flowModelRendererSpy: vi.fn(),
   };
 });
@@ -29,6 +37,12 @@ vi.mock('../../../../acl/useAclSnippets', () => {
 vi.mock('../HelpLite', () => {
   return {
     HelpLite: () => <div data-testid="help-lite" />,
+  };
+});
+
+vi.mock('../../../../hooks/useApp', () => {
+  return {
+    useApp: () => appMock.current,
   };
 });
 
@@ -63,10 +77,19 @@ const createAction = (options: Record<string, any>) => {
   } as any;
 };
 
+const renderSettingsLabel = (label: React.ReactNode, pathname: string) => {
+  return render(<MemoryRouter initialEntries={[pathname]}>{label}</MemoryRouter>);
+};
+
 describe('TopbarActionsBar helpers', () => {
   beforeEach(() => {
     allowMock.mockReset();
     flowModelRendererSpy.mockClear();
+    appMock.current = {
+      router: {
+        getBasename: () => '/nocobase/v',
+      },
+    };
   });
 
   afterEach(() => {
@@ -147,6 +170,214 @@ describe('TopbarActionsBar helpers', () => {
       name: 'system-settings',
       path: '/admin/settings/system-settings',
     });
+  });
+
+  it('should open regular admin settings in a new tab outside admin runtime', () => {
+    const items = getTopbarPluginSettingsItems({
+      canManagePlugins: false,
+      t: (key) => key,
+      settings: [
+        {
+          key: 'system-settings',
+          name: 'system-settings',
+          title: 'System settings',
+          path: '/admin/settings/system-settings',
+          icon: null,
+          componentLoader: async () => null,
+        },
+      ] as any,
+    });
+
+    renderSettingsLabel((items as any[])[0].label, '/sales/p1');
+
+    const link = screen.getByRole('link', { name: 'System settings' });
+    expect(link).toHaveAttribute('href', '/nocobase/v/admin/settings/system-settings');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noreferrer'));
+  });
+
+  it('should open plugin manager in a new tab outside admin runtime', () => {
+    const items = getTopbarPluginSettingsItems({
+      canManagePlugins: true,
+      t: (key) => key,
+      settings: [
+        {
+          key: 'plugin-manager',
+          name: 'plugin-manager',
+          title: 'Plugin manager',
+          path: '/admin/settings/plugin-manager',
+          icon: null,
+          componentLoader: async () => null,
+        },
+      ] as any,
+    });
+
+    renderSettingsLabel((items as any[])[0].label, '/sales/p1');
+
+    const link = screen.getByRole('link', { name: 'Plugin manager' });
+    expect(link).toHaveAttribute('href', '/nocobase/v/admin/settings/plugin-manager');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noreferrer'));
+  });
+
+  it('should open sub-app admin settings in a new tab outside sub-app admin runtime', () => {
+    const items = getTopbarPluginSettingsItems({
+      canManagePlugins: false,
+      t: (key) => key,
+      settings: [
+        {
+          key: 'system-settings',
+          name: 'system-settings',
+          title: 'System settings',
+          path: '/admin/settings/system-settings',
+          icon: null,
+          componentLoader: async () => null,
+        },
+      ] as any,
+    });
+
+    renderSettingsLabel((items as any[])[0].label, '/apps/a_9xlild35jir/crm-amd/ekeisumx1zu');
+
+    const link = screen.getByRole('link', { name: 'System settings' });
+    expect(link).toHaveAttribute('href', '/nocobase/v/apps/a_9xlild35jir/admin/settings/system-settings');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noreferrer'));
+  });
+
+  it('should keep regular admin settings as SPA links inside admin runtime', () => {
+    const items = getTopbarPluginSettingsItems({
+      canManagePlugins: false,
+      t: (key) => key,
+      settings: [
+        {
+          key: 'routes',
+          name: 'routes',
+          title: 'Routes',
+          path: '/admin/settings/routes',
+          icon: null,
+          componentLoader: async () => null,
+        },
+      ] as any,
+    });
+
+    renderSettingsLabel((items as any[])[0].label, '/admin/settings/routes');
+
+    const link = screen.getByRole('link', { name: 'Routes' });
+    expect(link).toHaveAttribute('href', '/admin/settings/routes');
+    expect(link).not.toHaveAttribute('target', '_blank');
+  });
+
+  it.each(['/nocobase/v', '/v', '/nocobase/v/apps/jhb20'])(
+    'should navigate sub-app settings without document navigation with basename %s',
+    (basename) => {
+      appMock.current.router.getBasename = () => basename;
+      const items = getTopbarPluginSettingsItems({
+        canManagePlugins: false,
+        t: (key) => key,
+        settings: [
+          {
+            key: 'ai',
+            name: 'ai',
+            title: 'AI employees',
+            path: '/admin/settings/ai',
+            icon: null,
+            componentLoader: async () => null,
+          },
+        ],
+      });
+      const item = items[0];
+      if (!item || !('label' in item)) {
+        throw new Error('Expected settings menu item');
+      }
+      const appBase = basename.endsWith('/apps/jhb20') ? basename : `${basename}/apps/jhb20`;
+      const targetHref = `${appBase}/admin/settings/ai`;
+      const LocationDisplay = () => <output aria-label="Current route">{useLocation().pathname}</output>;
+      render(
+        <MemoryRouter basename={basename} initialEntries={[`${appBase}/admin/a3pq1t1773a`]}>
+          {item.label}
+          <LocationDisplay />
+        </MemoryRouter>,
+      );
+
+      const link = screen.getByRole('link', { name: 'AI employees' });
+      expect(link).toHaveAttribute('href', targetHref);
+      expect(link).not.toHaveAttribute('target', '_blank');
+      const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+      fireEvent(link, click);
+      expect(click.defaultPrevented).toBe(true);
+      expect(screen.getByLabelText('Current route')).toHaveTextContent(targetHref.slice(basename.length));
+    },
+  );
+
+  it('should not treat admin-like paths as admin runtime', () => {
+    const items = getTopbarPluginSettingsItems({
+      canManagePlugins: false,
+      t: (key) => key,
+      settings: [
+        {
+          key: 'system-settings',
+          name: 'system-settings',
+          title: 'System settings',
+          path: '/admin/settings/system-settings',
+          icon: null,
+          componentLoader: async () => null,
+        },
+      ] as any,
+    });
+
+    renderSettingsLabel((items as any[])[0].label, '/admin2/foo');
+
+    const link = screen.getByRole('link', { name: 'System settings' });
+    expect(link).toHaveAttribute('href', '/nocobase/v/admin/settings/system-settings');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('should not duplicate the basename when building new-tab settings hrefs', () => {
+    const items = getTopbarPluginSettingsItems({
+      canManagePlugins: false,
+      t: (key) => key,
+      settings: [
+        {
+          key: 'system-settings',
+          name: 'system-settings',
+          title: 'System settings',
+          path: '/nocobase/v/admin/settings/system-settings',
+          icon: null,
+          componentLoader: async () => null,
+        },
+      ] as any,
+    });
+
+    renderSettingsLabel((items as any[])[0].label, '/sales/p1');
+
+    const link = screen.getByRole('link', { name: 'System settings' });
+    expect(link).toHaveAttribute('href', '/nocobase/v/admin/settings/system-settings');
+  });
+
+  it('should keep external settings opening in a new tab', () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const items = getTopbarPluginSettingsItems({
+      canManagePlugins: false,
+      t: (key) => key,
+      settings: [
+        {
+          key: 'docs',
+          name: 'docs',
+          title: 'Docs',
+          link: 'https://www.nocobase.com/docs',
+          icon: null,
+          componentLoader: async () => null,
+        },
+      ] as any,
+    });
+
+    renderSettingsLabel((items as any[])[0].label, '/sales/p1');
+    fireEvent.click(screen.getByText('Docs'));
+
+    expect(openSpy).toHaveBeenCalledWith('https://www.nocobase.com/docs', '_blank', 'noopener,noreferrer');
   });
 
   it('should return empty dropdown items when plugin manager and settings are both unavailable', () => {

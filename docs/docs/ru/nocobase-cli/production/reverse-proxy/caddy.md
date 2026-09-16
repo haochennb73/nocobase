@@ -124,7 +124,7 @@ nb proxy caddy reload
 
 Если ваше приложение не размещено в CLI или вы явно хотите поддерживать полную конфигурацию Caddy самостоятельно, вы также можете написать ее вручную.
 
-Однако для NocoBase запись производственной среды обычно представляет собой не просто `reverse_proxy`. Помимо пересылки запросов API серверному приложению, полная и работающая конфигурация Caddy обычно также должна обрабатывать каталог загрузки, статические ресурсы внешнего интерфейса, маршрутизацию `.well-known`, WebSocket и резервную страницу SPA.
+Однако для NocoBase вход производственной среды обычно представляет собой не просто `reverse_proxy`. Помимо пересылки запросов API серверному приложению, полная конфигурация Caddy должна обрабатывать каталог загрузки, статические ресурсы интерфейса, маршрут доступа к файлам `/files/`, маршрутизацию `.well-known`, WebSocket и резервные страницы SPA.
 
 Если взять в качестве примера `test2`, ключевые каталоги, связанные с Caddy, обычно включают в себя:
 
@@ -139,6 +139,7 @@ nb proxy caddy reload
 - `dist`: открыть каталог продукта внешней сборки.
 – `oauth well-known`: обработка путей обнаружения OAuth.
 - `openid well-known`: обработка путей обнаружения OpenID.
+- `files`: передача запросов доступа к файлам в `/files/` серверному приложению
 - `api`: переслать запрос `/api/` серверному приложению.
 - `ws`: пересылать запросы WebSocket серверному приложению.
 - `spa v2`: предоставляет интерфейсную страницу ввода и возврата для `/v/`.
@@ -163,10 +164,31 @@ c.local.nocobase.com {
     }
 
     handle_path /storage/uploads/* {
-        root * NB_CLI_ROOT/test2/storage/uploads
-        header Cache-Control public
-        header X-Content-Type-Options nosniff
-        file_server
+        route {
+            request_header -X-NocoBase-Auth-Set-Cookie
+            forward_auth host.docker.internal:56575 {
+                uri /api/auth:checkLegacyFileAccess
+                header_up X-App {query.__appName}
+                copy_headers Set-Cookie>X-NocoBase-Auth-Set-Cookie
+            }
+
+            @refreshedAuth header X-NocoBase-Auth-Set-Cookie *
+            header @refreshedAuth Set-Cookie {header.X-NocoBase-Auth-Set-Cookie}
+            header Cache-Control "private, no-store"
+            header Content-Security-Policy sandbox
+            header X-Content-Type-Options nosniff
+            header Content-Disposition inline
+
+            @activeUploadedContent path_regexp activeUploadedContent (?i)\.(?:htm|html|pdf|svg|svgz|xht|xhtml|xml|xsl|xslt)$
+            header @activeUploadedContent Content-Disposition attachment
+            @download query download=1
+            header @download Content-Disposition attachment
+            @markdown path_regexp markdown (?i)\.md$
+            header @markdown Content-Type text/markdown
+
+            root * NB_CLI_ROOT/test2/storage/uploads
+            file_server
+        }
     }
 
     handle_path /dist/* {
@@ -184,6 +206,10 @@ c.local.nocobase.com {
     @openid path_regexp openid ^/\\.well-known/openid-configuration/(.+)$
     handle @openid {
         rewrite * /{re.openid.1}/.well-known/openid-configuration
+        reverse_proxy host.docker.internal:56575
+    }
+
+    handle /files/* {
         reverse_proxy host.docker.internal:56575
     }
 
@@ -249,7 +275,15 @@ NB_CLI_ROOT/test2/storage/uploads
 2. Подтвердите структуру маршрутизации и фактический путь на основе сгенерированных результатов.
 3. Затем вручную выполните настройки в соответствии с вашим доменным именем, режимом работы и путем монтирования.
 
-Обычно при этом меньше шансов пропустить детали, связанные с WebSockets, статическими ресурсами, каталогами загрузки, маршрутами `.well-known` или резервными страницами SPA, чем при написании конфигурации вручную с нуля.
+Обычно при этом меньше шансов пропустить детали, связанные с `/files/`, WebSockets, статическими ресурсами, каталогами загрузки, маршрутами `.well-known` или резервными страницами SPA, чем при написании конфигурации вручную с нуля.
+
+:::warning Внимание
+
+`/files/` — это маршрут приложения, который должен проходить авторизацию NocoBase. Не обрабатывайте его как статический каталог и не допускайте его попадания в резервную страницу SPA. Передавайте маршрут серверной части NocoBase и размещайте правило перед `handle_path /*` и другими правилами резервной обработки интерфейса.
+
+Если настроен `APP_PUBLIC_PATH=/nocobase/`, также передавайте `/nocobase/files/*`. Сохраните корневое правило `/files/*` для совместимости с существующими URL файлов.
+
+:::
 
 ## Проверьте и перезагрузите конфигурацию
 

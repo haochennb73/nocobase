@@ -111,6 +111,7 @@ en:
 - `NB_CLI_ROOT/test2/storage/...` Los siguientes son los recursos estáticos y los directorios de carga propios de la aplicación.
 - `app.conf` se puede cambiar, pero se debe conservar el bloque administrado de NocoBase
 - `index-v1.html` y `index-v2.html` reescribirán automáticamente las direcciones de recursos de acuerdo con la subruta del entorno actual, la versión del cliente activo y `CDN_BASE_URL`
+- `maps-http.conf` y `uploads-location.conf` protegen conjuntamente las URL heredadas `/storage/uploads/`: resuelven la subaplicación y comprueban el inicio de sesión mediante `auth_request` antes de devolver el archivo.
 
 :::nota de advertencia
 
@@ -122,7 +123,7 @@ Si desea agregar configuración de Nginx a nivel de sitio, como limitación actu
 
 Si su aplicación no está alojada en CLI o desea explícitamente mantener usted mismo la configuración completa de Nginx, también puede escribirla a mano.
 
-Sin embargo, para NocoBase, el proxy inverso de producción suele ser más que un simple `proxy_pass`. Además de reenviar solicitudes de API a la aplicación de backend, una configuración completa y utilizable generalmente necesita manejar el directorio de carga, los recursos estáticos de front-end, WebSocket, la ruta `.well-known` y la página alternativa de SPA.
+Sin embargo, para NocoBase, el proxy inverso de producción suele ser más que un simple `proxy_pass`. Además de reenviar solicitudes de API a la aplicación backend, una configuración completa y utilizable generalmente debe gestionar el directorio de carga, los recursos estáticos de front-end, la ruta de acceso a archivos `/files/`, WebSocket, la ruta `.well-known` y las páginas alternativas de la SPA.
 
 Tomando `test2` como ejemplo, los archivos y directorios clave relacionados con Nginx generalmente incluyen:
 
@@ -138,6 +139,7 @@ En otras palabras, la configuración escrita a mano normalmente debe cubrir al m
 - `uploads`: exponer el directorio de carga a través de `alias`
 - `dist`: exponer el directorio de productos de compilación front-end a través de `alias`
 - `well-known`: Manejar rutas de descubrimiento relacionadas con OAuth/OpenID
+- `files`: reenviar las solicitudes de acceso a archivos bajo `/files/` a la aplicación backend
 - `api`: reenviar la solicitud `/api/` a la aplicación backend
 - `ws`: reenvía solicitudes de WebSocket a la aplicación backend
 - `spa`: proporciona entrada frontal y `try_files` respaldo para `/` y `/v/`
@@ -153,6 +155,11 @@ location / {
 Para una aplicación alojada en CLI como `test2`, una estructura más cercana a una implementación real normalmente tendría este aspecto:
 
 ```nginx
+map $request_uri $legacy_file_app {
+    default "";
+    ~[?&]__appName=(?<legacy_file_app_name>[A-Za-z0-9_-]+)(?:&|$) $legacy_file_app_name;
+}
+
 server {
     listen 80;
     server_name c.local.nocobase.com;
@@ -163,6 +170,19 @@ server {
 
     include NB_CLI_ROOT/.nocobase/proxy/nginx/snippets/mime-types.conf;
     include NB_CLI_ROOT/.nocobase/proxy/nginx/snippets/gzip.conf;
+
+    location = /_nocobase_legacy_file_auth {
+        internal;
+        proxy_pass http://127.0.0.1:56575/api/auth:checkLegacyFileAccess;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Cookie $http_cookie;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-App $legacy_file_app;
+        proxy_set_header X-Original-URI $request_uri;
+        proxy_set_header Host $final_host;
+        proxy_set_header X-Forwarded-Proto $upstream_x_forwarded_proto;
+    }
 
     location /storage/uploads/ {
         alias NB_CLI_ROOT/test2/storage/uploads/;
@@ -176,6 +196,11 @@ server {
 
     location ~ ^/\\.well-known/(?<well_known>oauth-authorization-server|openid-configuration)/(?<resource_path>.+)$ {
         rewrite ^ /$resource_path/.well-known/$well_known break;
+        proxy_pass http://127.0.0.1:56575;
+        include NB_CLI_ROOT/.nocobase/proxy/nginx/snippets/proxy-location.conf;
+    }
+
+    location ^~ /files/ {
         proxy_pass http://127.0.0.1:56575;
         include NB_CLI_ROOT/.nocobase/proxy/nginx/snippets/proxy-location.conf;
     }
@@ -210,6 +235,8 @@ server {
 }
 ```
 
+La directiva `map` debe estar en el contexto `http {}` de Nginx. Identifica la subaplicación mediante `__appName`. El segmento `/api/` de `proxy_pass` debe coincidir con `API_BASE_PATH`; si se usa `APP_PUBLIC_PATH`, aplique el mismo prefijo a las rutas de uploads y autenticación.
+
 Hay dos puntos clave aquí:
 
 - `NB_CLI_ROOT/.nocobase/proxy/nginx/...` Los siguientes son archivos auxiliares del agente mantenidos por CLI
@@ -229,7 +256,17 @@ Un enfoque más prudente suele ser:
 2. Confirme la estructura de enrutamiento y la ruta real según los resultados generados.
 3. Luego realice ajustes manuales según su nombre de dominio, modo de ejecución y ruta de montaje.
 
-Por lo general, es menos probable que se pierdan detalles relacionados con WebSockets, recursos estáticos, directorios de carga o páginas de respaldo de SPA que escribir a mano una configuración desde cero.
+Por lo general, es menos probable que se pierdan detalles relacionados con `/files/`, WebSockets, recursos estáticos, directorios de carga o páginas de respaldo de la SPA que al escribir una configuración desde cero.
+
+:::warning Atención
+
+`/files/` es una ruta de la aplicación que debe pasar por la autorización de NocoBase. No la trates como un directorio estático ni permitas que llegue al fallback de la SPA. Reenvíala al backend de NocoBase y coloca la regla antes de `location /` y de otras reglas de fallback del front-end.
+
+Si se configura `APP_PUBLIC_PATH=/nocobase/`, reenvía también `/nocobase/files/`. Conserva la regla raíz `/files/` para mantener la compatibilidad con las URL de archivos existentes.
+
+Las URL heredadas `/storage/uploads/` requieren iniciar sesión de forma predeterminada. Al servir mediante `alias`, ejecute primero `auth_request` contra `auth:checkLegacyFileAccess`. Para compatibilidad anónima, configure `LEGACY_LOCAL_STORAGE_PUBLIC_ACCESS=true` y reinicie la aplicación sin eliminar la comprobación de Nginx. Los permisos de `/files/` no cambian.
+
+:::
 
 ## Cómo manejar HTTPS
 

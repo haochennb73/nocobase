@@ -124,7 +124,7 @@ If you want to make up for Caddy site-level configuration, such as additional he
 
 If your application is not CLI hosted, or you explicitly want to maintain the complete Caddy configuration yourself, you can also write it by hand.
 
-However, for NocoBase, the production environment entry is usually not just a simple `reverse_proxy`. In addition to forwarding API requests to the backend application, a complete and working Caddy configuration usually also needs to handle the upload directory, front-end static resources, `.well-known` routing, WebSocket, and SPA fallback page.
+However, for NocoBase, the production environment entry is usually not just a simple `reverse_proxy`. In addition to forwarding API requests to the backend application, a complete and working Caddy configuration usually also needs to handle the upload directory, front-end static resources, the `/files/` file access route, `.well-known` routing, WebSocket, and SPA fallback pages.
 
 Taking `test2` as an example, key directories related to Caddy usually include:
 
@@ -135,10 +135,11 @@ Taking `test2` as an example, key directories related to Caddy usually include:
 In other words, handwritten configuration usually needs to cover at least the following types of entries:
 
 - `v`: Redirect `/v` to `/v/`
-- `uploads`: Expose upload directory
+- `uploads`: Expose the upload directory after NocoBase authentication
 - `dist`: Expose the front-end build product directory
 - `oauth well-known`: Handle OAuth discovery paths
 - `openid well-known`: Handle OpenID discovery paths
+- `files`: Forward file access requests under `/files/` to the backend application
 - `api`: forward `/api/` request to the backend application
 - `ws`: forward WebSocket requests to the backend application
 - `spa v2`: Provides front-end entry and return page for `/v/`
@@ -163,10 +164,31 @@ c.local.nocobase.com {
     }
 
     handle_path /storage/uploads/* {
-        root * NB_CLI_ROOT/test2/storage/uploads
-        header Cache-Control public
-        header X-Content-Type-Options nosniff
-        file_server
+        route {
+            request_header -X-NocoBase-Auth-Set-Cookie
+            forward_auth host.docker.internal:56575 {
+                uri /api/auth:checkLegacyFileAccess
+                header_up X-App {query.__appName}
+                copy_headers Set-Cookie>X-NocoBase-Auth-Set-Cookie
+            }
+
+            @refreshedAuth header X-NocoBase-Auth-Set-Cookie *
+            header @refreshedAuth Set-Cookie {header.X-NocoBase-Auth-Set-Cookie}
+            header Cache-Control "private, no-store"
+            header Content-Security-Policy sandbox
+            header X-Content-Type-Options nosniff
+            header Content-Disposition inline
+
+            @activeUploadedContent path_regexp activeUploadedContent (?i)\.(?:htm|html|pdf|svg|svgz|xht|xhtml|xml|xsl|xslt)$
+            header @activeUploadedContent Content-Disposition attachment
+            @download query download=1
+            header @download Content-Disposition attachment
+            @markdown path_regexp markdown (?i)\.md$
+            header @markdown Content-Type text/markdown
+
+            root * NB_CLI_ROOT/test2/storage/uploads
+            file_server
+        }
     }
 
     handle_path /dist/* {
@@ -184,6 +206,10 @@ c.local.nocobase.com {
     @openid path_regexp openid ^/\\.well-known/openid-configuration/(.+)$
     handle @openid {
         rewrite * /{re.openid.1}/.well-known/openid-configuration
+        reverse_proxy host.docker.internal:56575
+    }
+
+    handle /files/* {
         reverse_proxy host.docker.internal:56575
     }
 
@@ -249,7 +275,17 @@ A more prudent approach is usually:
 2. Confirm the routing structure and actual path based on the generated results.
 3. Then make manual adjustments according to your domain name, running mode and mounting path.
 
-This is usually less likely to miss details related to WebSockets, static resources, upload directories, `.well-known` routes, or SPA fallback pages than handwriting a configuration from scratch.
+This is usually less likely to miss details related to `/files/`, WebSockets, static resources, upload directories, `.well-known` routes, or SPA fallback pages than handwriting a configuration from scratch.
+
+:::warning Note
+
+URLs under `/storage/uploads/` are legacy local file URLs and must pass NocoBase sign-in authentication by default. Do not expose the upload directory with `file_server` alone, because that bypasses access control. The example above uses `forward_auth` to call the NocoBase auth endpoint before Caddy sends the file. Set `LEGACY_LOCAL_STORAGE_PUBLIC_ACCESS=true` and restart the application only when anonymous access is explicitly required for compatibility.
+
+`/files/` is an application route that must pass through NocoBase authorization. Do not handle it as a static directory or let it fall through to the SPA fallback. Forward it to the NocoBase backend and place the rule before `handle_path /*` and other front-end fallback rules.
+
+If `APP_PUBLIC_PATH=/nocobase/` is configured, also forward `/nocobase/files/*`. Keep the root-level `/files/*` rule for compatibility with existing file URLs.
+
+:::
 
 ## Check and reload configuration
 

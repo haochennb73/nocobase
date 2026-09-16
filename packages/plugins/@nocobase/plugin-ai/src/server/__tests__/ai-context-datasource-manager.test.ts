@@ -74,4 +74,228 @@ describe('AIContextDatasourceManager', () => {
       ],
     ]);
   });
+
+  it('should query appended associations and serialize dotted relation fields', async () => {
+    const repository = {
+      find: vi.fn().mockResolvedValue([
+        {
+          title: 'Open task',
+          due_date: '2026-07-20',
+          related_item: {
+            display_name: 'Related item',
+          },
+          assigned_user: {
+            nickname: 'User Alpha',
+          },
+        },
+      ]),
+      count: vi.fn().mockResolvedValue(1),
+    };
+    const relatedItemCollection = {
+      getField: vi.fn().mockReturnValue({
+        options: {
+          name: 'display_name',
+          type: 'string',
+        },
+      }),
+    };
+    const assignedUserCollection = {
+      getField: vi.fn().mockReturnValue({
+        options: {
+          name: 'nickname',
+          type: 'string',
+        },
+      }),
+    };
+    const collection = {
+      repository,
+      getField: vi.fn((name: string) => {
+        const fields = {
+          title: {
+            options: {
+              name: 'title',
+              type: 'string',
+            },
+          },
+          due_date: {
+            options: {
+              name: 'due_date',
+              type: 'dateOnly',
+            },
+          },
+          related_item: {
+            options: {
+              name: 'related_item',
+              type: 'belongsTo',
+            },
+            isRelationField: () => true,
+            targetCollection: () => relatedItemCollection,
+          },
+          assigned_user: {
+            options: {
+              name: 'assigned_user',
+              type: 'belongsTo',
+            },
+            isRelationField: () => true,
+            targetCollection: () => assignedUserCollection,
+          },
+        };
+        return fields[name];
+      }),
+    };
+    const ds = {
+      acl: {
+        allowManager: {
+          isAllowed: vi.fn().mockResolvedValue(true),
+        },
+      },
+      collectionManager: {
+        getCollection: vi.fn().mockReturnValue(collection),
+      },
+    };
+    const plugin = {
+      app: {
+        dataSourceManager: {
+          get: vi.fn().mockReturnValue(ds),
+        },
+      },
+      log: {
+        warn: vi.fn(),
+      },
+    };
+
+    const manager = new AIContextDatasourceManager(plugin as any);
+    const result = await manager.query(
+      {} as any,
+      {
+        datasource: 'main',
+        collectionName: 'task_items',
+        fields: ['title', 'due_date', 'related_item.display_name', 'assigned_user.nickname'],
+        appends: ['related_item', 'assigned_user'],
+        filter: {
+          status: {
+            $eq: 'open',
+          },
+        },
+        sort: ['due_date'],
+        limit: 1,
+        offset: 0,
+      } as any,
+    );
+
+    expect(repository.find).toHaveBeenCalledWith({
+      fields: ['title', 'due_date', 'related_item.display_name', 'assigned_user.nickname'],
+      appends: ['related_item', 'assigned_user'],
+      filter: {
+        status: {
+          $eq: 'open',
+        },
+      },
+      sort: ['due_date'],
+      offset: 0,
+      limit: 1,
+    });
+    expect(result?.records).toEqual([
+      [
+        {
+          name: 'title',
+          type: 'string',
+          value: 'Open task',
+        },
+        {
+          name: 'due_date',
+          type: 'dateOnly',
+          value: '2026-07-20',
+        },
+        {
+          name: 'related_item.display_name',
+          type: 'string',
+          value: 'Related item',
+        },
+        {
+          name: 'assigned_user.nickname',
+          type: 'string',
+          value: 'User Alpha',
+        },
+      ],
+    ]);
+  });
+
+  it('should resolve the current user variable in the role data scope filter', async () => {
+    const repository = {
+      find: vi.fn().mockResolvedValue([{ id: 1 }]),
+      count: vi.fn().mockResolvedValue(1),
+    };
+    const collection = {
+      repository,
+      getField: vi.fn().mockReturnValue({
+        options: {
+          name: 'id',
+          type: 'bigInt',
+        },
+      }),
+    };
+    const ds = {
+      acl: {
+        allowManager: {
+          isAllowed: vi.fn().mockResolvedValue(false),
+        },
+        can: vi.fn().mockReturnValue({
+          params: {
+            filter: {
+              $and: [{ employee_id: { $eq: '{{$user.id}}' } }],
+            },
+          },
+        }),
+      },
+      collectionManager: {
+        getCollection: vi.fn().mockReturnValue(collection),
+      },
+    };
+    const plugin = {
+      app: {
+        dataSourceManager: {
+          get: vi.fn().mockReturnValue(ds),
+        },
+      },
+      log: {
+        warn: vi.fn(),
+      },
+    };
+    const ctx = {
+      state: {
+        currentRoles: ['member'],
+        currentUser: { id: 7 },
+      },
+      db: {
+        getFieldByPath: vi.fn().mockReturnValue({}),
+        getRepository: vi.fn().mockReturnValue({
+          findOne: vi.fn().mockResolvedValue({ id: 7 }),
+        }),
+      },
+    };
+
+    const manager = new AIContextDatasourceManager(plugin as any);
+    const result = await manager.query(
+      ctx as any,
+      {
+        datasource: 'ai_external_mysql',
+        collectionName: 'orders',
+        fields: ['id'],
+        filter: {},
+        sort: [],
+        limit: 10,
+        offset: 0,
+      } as any,
+    );
+
+    expect(repository.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filter: {
+          $and: [{}, { $and: [{ employee_id: { $eq: 7 } }] }],
+        },
+      }),
+    );
+    expect(result?.total).toBe(1);
+  });
 });

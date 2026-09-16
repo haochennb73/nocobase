@@ -124,7 +124,7 @@ Nếu bạn muốn bù đắp cấu hình cấp trang Caddy, chẳng hạn như 
 
 Nếu ứng dụng của bạn không được lưu trữ CLI hoặc bạn muốn tự mình duy trì cấu hình Caddy hoàn chỉnh, bạn cũng có thể viết nó bằng tay.
 
-Tuy nhiên, đối với NocoBase, mục nhập môi trường sản xuất thường không chỉ là `reverse_proxy` đơn giản. Ngoài việc chuyển tiếp các yêu cầu API đến ứng dụng phụ trợ, cấu hình Caddy hoàn chỉnh và đang hoạt động thường cũng cần xử lý thư mục tải lên, tài nguyên tĩnh giao diện người dùng, định tuyến `.well-known`, WebSocket và trang dự phòng SPA.
+Tuy nhiên, entry production của NocoBase thường không chỉ là một `reverse_proxy` đơn giản. Ngoài việc chuyển tiếp request API đến backend, cấu hình Caddy đầy đủ còn phải xử lý thư mục tải lên, tài nguyên tĩnh frontend, route truy cập file `/files/`, định tuyến `.well-known`, WebSocket và các trang fallback SPA.
 
 Lấy `test2` làm ví dụ, các thư mục chính liên quan đến Caddy thường bao gồm:
 
@@ -139,6 +139,7 @@ Nói cách khác, cấu hình viết tay thường cần bao gồm ít nhất c�
 - `dist`: Hiển thị thư mục sản phẩm xây dựng front-end
 - `oauth well-known`: Xử lý đường dẫn khám phá OAuth
 - `openid well-known`: Xử lý đường dẫn khám phá OpenID
+- `files`: chuyển tiếp request truy cập file dưới `/files/` đến ứng dụng backend
 - `api`: chuyển tiếp yêu cầu `/api/` tới ứng dụng phụ trợ
 - `ws`: chuyển tiếp các yêu cầu WebSocket tới ứng dụng phụ trợ
 - `spa v2`: Cung cấp trang nhập và trả về giao diện người dùng cho `/v/`
@@ -163,10 +164,31 @@ c.local.nocobase.com {
     }
 
     handle_path /storage/uploads/* {
-        root * NB_CLI_ROOT/test2/storage/uploads
-        header Cache-Control public
-        header X-Content-Type-Options nosniff
-        file_server
+        route {
+            request_header -X-NocoBase-Auth-Set-Cookie
+            forward_auth host.docker.internal:56575 {
+                uri /api/auth:checkLegacyFileAccess
+                header_up X-App {query.__appName}
+                copy_headers Set-Cookie>X-NocoBase-Auth-Set-Cookie
+            }
+
+            @refreshedAuth header X-NocoBase-Auth-Set-Cookie *
+            header @refreshedAuth Set-Cookie {header.X-NocoBase-Auth-Set-Cookie}
+            header Cache-Control "private, no-store"
+            header Content-Security-Policy sandbox
+            header X-Content-Type-Options nosniff
+            header Content-Disposition inline
+
+            @activeUploadedContent path_regexp activeUploadedContent (?i)\.(?:htm|html|pdf|svg|svgz|xht|xhtml|xml|xsl|xslt)$
+            header @activeUploadedContent Content-Disposition attachment
+            @download query download=1
+            header @download Content-Disposition attachment
+            @markdown path_regexp markdown (?i)\.md$
+            header @markdown Content-Type text/markdown
+
+            root * NB_CLI_ROOT/test2/storage/uploads
+            file_server
+        }
     }
 
     handle_path /dist/* {
@@ -184,6 +206,10 @@ c.local.nocobase.com {
     @openid path_regexp openid ^/\\.well-known/openid-configuration/(.+)$
     handle @openid {
         rewrite * /{re.openid.1}/.well-known/openid-configuration
+        reverse_proxy host.docker.internal:56575
+    }
+
+    handle /files/* {
         reverse_proxy host.docker.internal:56575
     }
 
@@ -249,7 +275,15 @@ Một cách tiếp cận thận trọng hơn thường là:
 2. Xác nhận cấu trúc định tuyến và đường dẫn thực tế dựa trên kết quả được tạo.
 3. Sau đó thực hiện điều chỉnh thủ công theo tên miền, chế độ chạy và đường dẫn cài đặt của bạn.
 
-Điều này thường ít có khả năng bỏ lỡ các chi tiết liên quan đến WebSockets, tài nguyên tĩnh, thư mục tải lên, tuyến `.well-known` hoặc trang dự phòng SPA so với việc viết cấu hình từ đầu.
+Cách này thường ít bỏ sót các chi tiết liên quan đến `/files/`, WebSocket, tài nguyên tĩnh, thư mục tải lên, route `.well-known` hoặc trang fallback SPA hơn so với việc viết cấu hình từ đầu.
+
+:::warning Lưu ý
+
+`/files/` là route ứng dụng phải đi qua cơ chế xác thực của NocoBase. Không xử lý route này như thư mục tĩnh và không để nó rơi vào fallback SPA. Hãy chuyển tiếp đến backend NocoBase và đặt rule trước `handle_path /*` cùng các rule fallback frontend khác.
+
+Nếu cấu hình `APP_PUBLIC_PATH=/nocobase/`, hãy chuyển tiếp thêm `/nocobase/files/*`. Giữ rule `/files/*` ở root để tương thích với các URL file hiện có.
+
+:::
 
 ## Kiểm tra và tải lại cấu hình
 

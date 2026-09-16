@@ -271,7 +271,7 @@ export function getCoreFieldConfigureState(
 
   if (name.startsWith('reverseField.')) {
     return {
-      disabled: !context.showReverseFieldConfig,
+      disabled: name === 'reverseField.type' || !context.showReverseFieldConfig,
       hidden: !context.showReverseFieldConfig,
     };
   }
@@ -514,7 +514,7 @@ export function reverseFieldConfigureItems(): FieldConfigureItem[] {
         { label: "{{t('BelongsToMany')}}", value: 'belongsToMany' },
       ],
       hidden: ({ context, values }) => !context.showReverseFieldConfig && !get(values, 'autoCreateReverseField'),
-      disabled: ({ context }) => !context.showReverseFieldConfig,
+      disabled: true,
     },
     {
       name: 'reverseField.uiSchema.title',
@@ -530,7 +530,7 @@ export function reverseFieldConfigureItems(): FieldConfigureItem[] {
       component: 'Input',
       required: true,
       description:
-        "{{t('Randomly generated and can be modified. Support letters, numbers and underscores, must start with an letter.')}}",
+        "{{t('Randomly generated and can be modified. Support letters, numbers and underscores, must start with a letter.')}}",
       hidden: ({ context, values }) => !context.showReverseFieldConfig && !get(values, 'autoCreateReverseField'),
       disabled: ({ context }) => !context.showReverseFieldConfig,
     },

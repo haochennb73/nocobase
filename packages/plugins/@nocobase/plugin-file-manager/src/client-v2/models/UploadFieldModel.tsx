@@ -7,24 +7,36 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { UploadOutlined, PlusOutlined } from '@ant-design/icons';
+import { UploadOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { css } from '@emotion/css';
-import { Upload } from 'antd';
+import { Button, Upload } from 'antd';
+import type { UploadFile } from 'antd';
 import { castArray } from 'lodash';
 import { useTranslation } from 'react-i18next';
 import { largeField, tExpr, EditableItemModel, observable } from '@nocobase/flow-engine';
-import React, { useLayoutEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FieldContext } from '@formily/react';
 import { FieldModel, RecordPickerContent } from '@nocobase/client-v2';
-import { FilePreviewRenderer, getDownloadFileName } from '../previewer/filePreviewTypes';
+import {
+  FilePreviewRenderer,
+  getDownloadFileName,
+  rememberLocalPreviewUrl,
+  revokeLocalPreviewUrls,
+  triggerFileDownload,
+} from '../previewer/filePreviewTypes';
 import {
   getUploadFieldPreviewIndex,
   normalizeUploadFieldFileList,
   shouldShowUploadActionSlot,
 } from './uploadFieldUtils';
 
-function getDataSourceHeaders(dataSourceKey?: string) {
-  return dataSourceKey && dataSourceKey !== 'main' ? { 'x-data-source': dataSourceKey } : {};
+function appendUploadDataSourceKey(url: string, dataSourceKey?: string) {
+  if (!dataSourceKey || dataSourceKey === 'main') {
+    return url;
+  }
+
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}uploadDataSourceKey=${encodeURIComponent(dataSourceKey)}`;
 }
 
 export const CardUpload = (props) => {
@@ -36,12 +48,25 @@ export const CardUpload = (props) => {
     onSelectExitRecordClick,
     quickUpload = true,
     showFileName,
+    fileCollection,
   } = props;
   const [fileList, setFileList] = useState(() => normalizeUploadFieldFileList(castArray(value || [])));
+  const fileListRef = useRef(fileList);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0); // 用来跟踪当前预览的图片索引
   const { t } = useTranslation();
+
+  useEffect(() => {
+    fileListRef.current = fileList;
+  }, [fileList]);
+
+  useEffect(() => {
+    return () => {
+      revokeLocalPreviewUrls(fileListRef.current.flatMap((file: any) => [file, file.response].filter(Boolean)));
+    };
+  }, []);
+
   useLayoutEffect(() => {
     // 在浏览器绘制前完成外部值同步，避免先闪出旧槽位再切换成新布局。
     setFileList((previousFileList) => normalizeUploadFieldFileList(castArray(value || []), previousFileList));
@@ -81,20 +106,7 @@ export const CardUpload = (props) => {
     if (!url) {
       return;
     }
-    const filename = getDownloadFileName(target, url);
-    // eslint-disable-next-line promise/catch-or-return
-    fetch(url)
-      .then((response) => response.blob())
-      .then((blob) => {
-        const blobUrl = URL.createObjectURL(new Blob([blob]));
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        URL.revokeObjectURL(blobUrl);
-        link.remove();
-      });
+    triggerFileDownload(url, getDownloadFileName(target, url));
   };
 
   return (
@@ -112,6 +124,47 @@ export const CardUpload = (props) => {
             margin-bottom: 10px;
             .ant-upload-list-item-container {
               margin: ${showFileName ? '8px 0px' : '0px'};
+              position: relative;
+
+              /* 删除按钮独立放到卡片右上角，与居中的预览按钮拉开距离，避免预览时误触删除。 */
+              .nb-upload-item-remove {
+                position: absolute;
+                top: 4px;
+                right: 4px;
+                z-index: 10;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 22px;
+                min-width: 22px;
+                height: 22px;
+                padding: 0;
+                color: rgba(255, 255, 255, 0.85);
+                background: rgba(0, 0, 0, 0.5);
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.2s;
+              }
+
+              .nb-upload-item-remove:hover,
+              .nb-upload-item-remove:focus-visible {
+                color: #fff;
+                background: rgba(0, 0, 0, 0.75);
+              }
+
+              &:hover .nb-upload-item-remove,
+              &:focus-within .nb-upload-item-remove {
+                opacity: 1;
+                pointer-events: auto;
+              }
+
+              /* 触屏设备没有 hover 态，常驻显示删除按钮。 */
+              @media (hover: none) {
+                .nb-upload-item-remove {
+                  opacity: 1;
+                  pointer-events: auto;
+                }
+              }
             }
           }
           .ant-upload-select {
@@ -144,6 +197,16 @@ export const CardUpload = (props) => {
           listType="picture-card"
           fileList={fileList}
           onChange={({ fileList: newFileList }) => {
+            newFileList.forEach((file: any) => {
+              if ((file.status === 'done' || file.id) && file.originFileObj) {
+                rememberLocalPreviewUrl(file.response || file, file);
+              }
+            });
+            revokeLocalPreviewUrls(
+              fileList
+                .filter((file: any) => !newFileList.some((nextFile: any) => nextFile.uid === file.uid))
+                .flatMap((file: any) => [file, file.response].filter(Boolean)),
+            );
             // 保留上传组件生成的 uid，避免上传完成后回灌值把同一项渲染成两张不同的卡片。
             setFileList((previousFileList) => normalizeUploadFieldFileList(newFileList, previousFileList));
             const doneFiles = newFileList.filter((f: any) => f.status === 'done' || f.id);
@@ -156,10 +219,24 @@ export const CardUpload = (props) => {
               }
             }
           }}
-          itemRender={(originNode, file: any) => {
+          showUploadList={{ showRemoveIcon: false }}
+          itemRender={(originNode, file, _fileList, actions) => {
+            const { filename } = file as UploadFile & { filename?: string };
+            const removable = !disabled && file.status !== 'uploading';
             return (
               <>
                 {originNode}
+                {removable && (
+                  <Button
+                    className="nb-upload-item-remove"
+                    type="text"
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    title={t('Delete')}
+                    aria-label={t('Delete')}
+                    onClick={() => actions?.remove()}
+                  />
+                )}
                 {showFileName && (
                   <div
                     style={{
@@ -168,9 +245,9 @@ export const CardUpload = (props) => {
                       textOverflow: 'ellipsis',
                       overflow: 'hidden',
                     }}
-                    title={file.filename}
+                    title={filename}
                   >
-                    {file.filename}
+                    {filename}
                   </div>
                 )}
               </>
@@ -185,6 +262,7 @@ export const CardUpload = (props) => {
             open={previewOpen}
             file={previewImage}
             list={fileList}
+            fileCollection={fileCollection}
             index={currentImageIndex}
             onOpenChange={setPreviewOpen}
             onClose={() => setPreviewImage(null)}
@@ -224,6 +302,10 @@ export const CardUpload = (props) => {
   );
 };
 
+type SelectExistingRecordHandler = (event?: unknown) => void;
+
+const defaultSelectExistingRecordHandlers = new WeakSet<SelectExistingRecordHandler>();
+
 @largeField()
 export class UploadFieldModel extends FieldModel {
   selectedRows = observable.ref([]);
@@ -235,11 +317,13 @@ export class UploadFieldModel extends FieldModel {
   onInit(options: any): void {
     super.onInit(options);
 
-    this.onSelectExitRecordClick = (e) => {
+    const onSelectExitRecordClick: SelectExistingRecordHandler = (e) => {
       this.dispatchEvent('openView', {
         event: e,
       });
     };
+    defaultSelectExistingRecordHandlers.add(onSelectExitRecordClick);
+    this.onSelectExitRecordClick = onSelectExitRecordClick;
   }
   set onSelectExitRecordClick(fn) {
     this.setProps({ onSelectExitRecordClick: fn });
@@ -248,7 +332,29 @@ export class UploadFieldModel extends FieldModel {
     this.props.onChange(this.selectedRows.value);
   }
   render() {
-    return <CardUpload {...this.props} />;
+    const targetCollection = this.context.collectionField?.targetCollection;
+    const currentCollection = this.context.collection;
+    const fileCollection = targetCollection || (currentCollection?.template === 'file' ? currentCollection : null);
+    const fileCollectionReference = fileCollection
+      ? { dataSourceKey: fileCollection.dataSourceKey, collectionName: fileCollection.name }
+      : undefined;
+    const configuredHandler = this.props.onSelectExitRecordClick as SelectExistingRecordHandler | undefined;
+    const onSelectExitRecordClick =
+      configuredHandler && defaultSelectExistingRecordHandlers.has(configuredHandler)
+        ? (e?: unknown) => {
+            this.dispatchEvent('openView', {
+              event: e,
+            });
+          }
+        : configuredHandler;
+
+    return (
+      <CardUpload
+        {...this.props}
+        fileCollection={fileCollectionReference}
+        onSelectExitRecordClick={onSelectExitRecordClick}
+      />
+    );
   }
 }
 
@@ -358,12 +464,11 @@ UploadFieldModel.registerFlow({
         }
         try {
           // 上传前检查存储策略
-          const { data: checkData } = await ctx.api
-            .resource('storages', null, getDataSourceHeaders(dataSourceKey))
-            .check({
-              fileCollectionName: fileCollection,
-              storageName: collectionField.options.storage,
-            });
+          const { data: checkData } = await ctx.api.resource('storages').check({
+            fileCollectionName: fileCollection,
+            ...(dataSourceKey && dataSourceKey !== 'main' ? { uploadDataSourceKey: dataSourceKey } : {}),
+            storageName: collectionField.options.storage,
+          });
 
           if (!checkData?.data?.isSupportToUploadFiles) {
             const messageValue = ctx
@@ -382,7 +487,11 @@ UploadFieldModel.registerFlow({
             const customRequest = storageType.createUploadCustomRequest({
               ...ctx.model.props,
               api: ctx.api,
-              action: `${fileCollection}:create?attachmentField=${collectionField.collectionName}.${collectionField.name}`,
+              action: appendUploadDataSourceKey(
+                `${fileCollection}:create?attachmentField=${collectionField.collectionName}.${collectionField.name}`,
+                dataSourceKey,
+              ),
+              dataSourceKey,
               storage,
             });
 
@@ -542,7 +651,7 @@ UploadFieldModel.registerFlow({
               },
             },
           },
-          content: () => <RecordPickerContent model={ctx.model} />,
+          content: () => <RecordPickerContent model={ctx.model} toOne={toOne} />,
           styles: {
             content: {
               padding: 0,

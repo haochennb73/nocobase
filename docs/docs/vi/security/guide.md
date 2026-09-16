@@ -198,6 +198,56 @@ Nếu có nhu cầu lưu trữ file nhạy cảm, khuyến nghị sử dụng d�
 
 ![](https://static-docs.nocobase.com/202501031623549.png)
 
+Đối với Local Storage hoặc public storage khác có thể truy cập trực tiếp bằng URL cùng origin với ứng dụng, bạn cũng cần chú ý đến rủi ro từ file active content. Các file như `html`, `xhtml` và `svg` có thể được trình duyệt phân tích và thực thi trực tiếp. Nếu kẻ tấn công có thể upload loại file này và dụ người dùng mở file, họ có thể dùng domain tin cậy của ứng dụng để lưu trữ trang hoặc script độc hại.
+
+Kiểm tra upload của NocoBase không tin `Content-Type` do request gửi lên, mà ưu tiên MIME type được phát hiện ở phía server. Phần mở rộng file chỉ thể hiện tên file và không nên được xem là kiểu nội dung có thẩm quyền. Vì vậy, khi phục vụ file upload công khai, bạn cũng cần đảm bảo đường dẫn truy cập file có các response header bảo mật phù hợp.
+
+Nếu deploy bằng Docker hoặc cấu hình nginx do NocoBase tạo, URL cũ `/storage/uploads/` bị giới hạn cho người dùng đã đăng nhập. Mọi file cũng trả về `X-Content-Type-Options: nosniff`, và active content được tải xuống qua `Content-Disposition: attachment`. URL mới `/files/` tiếp tục áp dụng quyền cấp bản ghi.
+
+Nếu integration hiện có cần truy cập ẩn danh, đặt `LEGACY_LOCAL_STORAGE_PUBLIC_ACCESS=true` rồi khởi động lại ứng dụng. Công tắc này chỉ ảnh hưởng URL cũ và có thể làm lộ file đã upload.
+
+Nếu dùng proxy tùy chỉnh, CDN, object storage, hoặc expose trực tiếp thư mục upload cục bộ, hãy đảm bảo các quy tắc này không bị bỏ qua. Bạn có thể tham khảo cấu hình nginx sau:
+
+```nginx
+location = /_nocobase_legacy_file_auth {
+    internal;
+    proxy_pass http://127.0.0.1:13000/api/auth:checkLegacyFileAccess;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header Cookie $http_cookie;
+    proxy_set_header Authorization $http_authorization;
+}
+
+location ~* ^/storage/uploads/(.*\.(?:htm|html|svg|svgz|xhtml|pdf))$ {
+    alias /path/to/nocobase/storage/uploads/$1;
+    auth_request /_nocobase_legacy_file_auth;
+    add_header Cache-Control "private, no-store" always;
+    add_header Content-Disposition "attachment" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    autoindex off;
+}
+
+location /storage/uploads/ {
+    alias /path/to/nocobase/storage/uploads/;
+    auth_request /_nocobase_legacy_file_auth;
+    add_header Cache-Control "private, no-store" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    autoindex off;
+}
+```
+
+Nếu ứng dụng NocoBase của bạn cấu hình `APP_PUBLIC_PATH`, hãy thay `/storage/uploads/` bằng prefix truy cập thực tế, ví dụ `/nocobase/storage/uploads/`.
+
+Thông thường, chúng tôi khuyến nghị admin:
+
+- Ưu tiên private storage, signed URL, hoặc domain file độc lập, để file do người dùng upload không được phục vụ trực tiếp từ cùng origin với ứng dụng chính.
+- Áp dụng allowlist MIME type nghiêm ngặt cho upload và chỉ cho phép các loại file thực sự cần thiết cho nghiệp vụ.
+- Thận trọng khi cho phép các loại active content như `text/html`, `application/xhtml+xml` và `image/svg+xml`. Ngay cả khi hệ thống cố gắng trả về các file này dưới dạng download, điều đó không thể thay thế hoàn toàn giới hạn upload và cách ly origin.
+- Áp dụng cấu hình bảo mật nhất quán cho reverse proxy, CDN, object storage và mọi lớp phân phối file tĩnh khác, để tránh file nguy hiểm được trả về inline bằng cách bỏ qua bảo vệ ở application layer.
+- Không dùng local/public storage để host nội dung Web không đáng tin cậy. Nếu thực sự cần khả năng này, hãy dùng domain tách biệt và đánh giá riêng CSP, hành vi download và access control.
+
+Nếu admin cho phép rõ ràng việc upload các loại file nguy hiểm, admin cần tự đánh giá rủi ro phishing, thực thi script cùng origin và rò rỉ thông tin nhạy cảm, đồng thời đảm bảo Web Server, gateway, CDN và dịch vụ storage trong toàn bộ chuỗi deployment áp dụng giới hạn nhất quán.
+
 ### Sao lưu ứng dụng
 
 Để đảm bảo bảo mật dữ liệu ứng dụng, tránh mất dữ liệu, chúng tôi khuyến nghị bạn định kỳ sao lưu database.

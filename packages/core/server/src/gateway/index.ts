@@ -8,7 +8,7 @@
  */
 
 import { createSystemLogger, getLoggerFilePath, SystemLogger } from '@nocobase/logger';
-import { Registry, resolveStorageRoot, storagePathJoin, Toposort, ToposortOptions, uid } from '@nocobase/utils';
+import { Registry, storagePathJoin, Toposort, ToposortOptions, uid } from '@nocobase/utils';
 import { lockdownSes } from '@nocobase/utils';
 import { syncPluginSymlinks } from '@nocobase/utils/plugin-symlink';
 import { Command } from 'commander';
@@ -30,7 +30,6 @@ import { getPackageDirByExposeUrl, getPackageNameByExposeUrl } from '../plugin-m
 import { applyErrorWithArgs, getErrorWithCode } from './errors';
 import { IPCSocketClient } from './ipc-socket-client';
 import { IPCSocketServer } from './ipc-socket-server';
-import { getStorageUploadSecurityHeaders } from './static-file-security';
 import {
   injectRuntimeScript,
   MODERN_CLIENT_DIST_DIR,
@@ -83,6 +82,17 @@ function normalizeBasePath(path = '') {
   return normalized || '/';
 }
 
+function getFilesPathPrefixes(appPublicPath = '/') {
+  const normalizedPublicPath = normalizeBasePath(appPublicPath);
+  const canonicalPrefix = `${normalizedPublicPath === '/' ? '' : normalizedPublicPath}/files/`;
+  return canonicalPrefix === '/files/' ? ['/files/'] : [canonicalPrefix, '/files/'];
+}
+
+function getFileAccessRestPath(pathname: string, appPublicPath = '/') {
+  const prefix = getFilesPathPrefixes(appPublicPath).find((prefix) => pathname.startsWith(prefix));
+  return prefix ? pathname.slice(prefix.length) : null;
+}
+
 /** Align with cli-v1 `generateGatewayPath()` / `process.env.SOCKET_PATH` after initEnv. */
 function getSocketPath() {
   const socketPath = process.env.SOCKET_PATH;
@@ -126,7 +136,17 @@ export class Gateway extends EventEmitter {
     const internalUrl = req.url;
     req.url = this.getOriginalRequestUrl(req);
     try {
-      return await supervisor.proxyWeb(appName, req, res);
+      const proxied = await supervisor.proxyWeb(appName, req, res);
+      const adapter = supervisor.getDiscoveryAdapter();
+      if (!proxied && process.env.APP_MODE === 'supervisor' && typeof adapter.proxyWeb === 'function') {
+        let code = 'APP_ENVIRONMENT_UNAVAILABLE';
+        if (typeof adapter.getAppModel === 'function' && !(await supervisor.getAppModel(appName))) {
+          code = 'APP_NOT_FOUND';
+        }
+        this.responseErrorWithCode(code, res, { appName });
+        return true;
+      }
+      return proxied;
     } finally {
       req.url = internalUrl;
     }
@@ -233,6 +253,21 @@ export class Gateway extends EventEmitter {
             }
 
             req.url = rewrittenUrl;
+          }
+        }
+
+        const fileAccessRestPath = parsedUrl.pathname
+          ? getFileAccessRestPath(parsedUrl.pathname, process.env.APP_PUBLIC_PATH || '/')
+          : null;
+        if (fileAccessRestPath) {
+          const restPath = fileAccessRestPath;
+          const [pathAppName] = restPath.split('/');
+          if (pathAppName) {
+            try {
+              ctx.resolvedAppName = decodeURIComponent(pathAppName);
+            } catch (error) {
+              // Ignore malformed percent-encoding and keep the previously resolved app.
+            }
           }
         }
 
@@ -411,13 +446,20 @@ export class Gateway extends EventEmitter {
   }
 
   async requestHandler(req: IncomingMessage, res: ServerResponse) {
-    const { pathname } = parse(req.url);
+    const { pathname, search } = parse(req.url);
     const { PLUGIN_STATICS_PATH } = process.env;
     const APP_PUBLIC_PATH = this.getAppPublicPath();
 
     if (pathname.endsWith('/__umi/api/bundle-status')) {
       res.statusCode = 200;
       res.end('ok');
+      return;
+    }
+
+    if (APP_PUBLIC_PATH !== '/' && pathname.startsWith('/files/')) {
+      res.statusCode = 302;
+      res.setHeader('Location', `${APP_PUBLIC_PATH.replace(/\/$/, '')}${pathname}${search || ''}`);
+      res.end();
       return;
     }
 
@@ -429,25 +471,6 @@ export class Gateway extends EventEmitter {
       this.getLogger('main', res).error('Failed to get handle app name', { error });
       this.responseErrorWithCode('APP_INITIALIZING', res, { appName: handleApp });
       return;
-    }
-
-    if (pathname.startsWith(APP_PUBLIC_PATH + 'storage/uploads/')) {
-      if (handleApp !== 'main') {
-        const isProxy = await this.proxyRequestToSubApp(supervisor, handleApp, req, res);
-        if (isProxy) {
-          return;
-        }
-      }
-      const headers = getStorageUploadSecurityHeaders(pathname);
-      for (const [key, value] of Object.entries(headers)) {
-        res.setHeader(key, value);
-      }
-      req.url = req.url.substring(APP_PUBLIC_PATH.length + 'storage'.length);
-      await compress(req, res);
-      return handler(req, res, {
-        public: resolveStorageRoot(),
-        directoryListing: false,
-      });
     }
 
     if (pathname.startsWith(APP_PUBLIC_PATH + 'dist/')) {
@@ -491,7 +514,10 @@ export class Gateway extends EventEmitter {
       });
     }
 
-    if (!pathname.startsWith(process.env.API_BASE_PATH)) {
+    const isFilesRequest = Boolean(getFileAccessRestPath(pathname, APP_PUBLIC_PATH));
+    const isLegacyUploadRequest = pathname.startsWith(APP_PUBLIC_PATH + 'storage/uploads/');
+
+    if (!pathname.startsWith(process.env.API_BASE_PATH) && !isFilesRequest && !isLegacyUploadRequest) {
       if (this.isV2Request(pathname)) {
         if (handleApp !== 'main') {
           const isProxy = await this.proxyRequestToSubApp(supervisor, handleApp, req, res);

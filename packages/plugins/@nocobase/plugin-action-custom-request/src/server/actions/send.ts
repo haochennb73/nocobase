@@ -73,6 +73,24 @@ const omitNullAndUndefined = (obj: any) => {
   }, {});
 };
 
+const RuntimeTargetOptionKeys = new Set([
+  'url',
+  'baseURL',
+  'proxy',
+  'socketPath',
+  'transport',
+  'httpAgent',
+  'httpsAgent',
+]);
+
+const getForbiddenRuntimeTargetOptionKeys = (runtimeOptions: unknown) => {
+  if (!runtimeOptions || typeof runtimeOptions !== 'object' || Array.isArray(runtimeOptions)) {
+    return [];
+  }
+
+  return Object.keys(runtimeOptions).filter((key) => RuntimeTargetOptionKeys.has(key));
+};
+
 const CurrentUserVariableRegExp = /{{\s*(?:ctx\.)?(currentUser[^}]+)\s*}}/g;
 
 const getCurrentUserAppends = (str: string, user) => {
@@ -161,6 +179,14 @@ export async function send(this: CustomRequestPlugin, ctx: Context, next: Next) 
     ctx.throw(404, 'request config not found');
   }
 
+  const forbiddenRuntimeOptionKeys = getForbiddenRuntimeTargetOptionKeys(runtimeOptions);
+  if (forbiddenRuntimeOptionKeys.length) {
+    return ctx.throw(
+      400,
+      ctx.t('Runtime request options cannot override the request target', { ns: 'action-custom-request' }),
+    );
+  }
+
   ctx.withoutDataWrapping = true;
 
   const mergedOptions = {
@@ -216,12 +242,15 @@ export async function send(this: CustomRequestPlugin, ctx: Context, next: Next) 
   };
   applyVarsToVariables(variables, vars);
 
+  const urlVariables = {
+    ...variables,
+    $env: ctx.app.environment.getNonSecretVariables(),
+  };
+
   const axiosRequestConfig = {
     baseURL: getRequestBaseURL(ctx),
     ...options,
-    // safeRequest checks this url value (before baseURL combination) so that
-    // relative paths pointing to the same server are not subject to the whitelist.
-    url: getParsedValue(url, variables),
+    url: getParsedValue(url, urlVariables),
     headers: {
       Authorization: 'Bearer ' + ctx.getBearerToken(),
       ...getHeaders(ctx.headers),

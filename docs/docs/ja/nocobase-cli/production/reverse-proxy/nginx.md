@@ -111,6 +111,7 @@ nb proxy nginx reload
 - `NB_CLI_ROOT/test2/storage/...` 以下は、アプリケーション独自の静的リソースとアップロード ディレクトリです。
 - `app.conf` は変更できますが、NocoBase 管理ブロックは保持する必要があります
 - `index-v1.html` および `index-v2.html` は、現在の環境サブパス、アクティブなクライアントのバージョン、および `CDN_BASE_URL` に従ってリソース アドレスを自動的に書き換えます。
+- `maps-http.conf` と `uploads-location.conf` は既存の `/storage/uploads/` URL を共同で保護し、サブアプリを判定してファイル返却前に `auth_request` でログインを確認します。
 
 :::警告メモ
 
@@ -122,7 +123,7 @@ nb proxy nginx reload
 
 アプリケーションが CLI でホストされていない場合、または完全な Nginx 構成を自分で明示的に保守したい場合は、手動で記述することもできます。
 
-ただし、NocoBase の場合、実稼働リバース プロキシは通常、単純な `proxy_pass` 以上のものです。 API リクエストをバックエンド アプリケーションに転送することに加えて、完全で使用可能な構成では、通常、アップロード ディレクトリ、フロントエンド静的リソース、WebSocket、`.well-known` ルート、および SPA フォールバック ページを処理する必要があります。
+ただし、NocoBase の本番環境リバースプロキシは、単純な `proxy_pass` だけではありません。API リクエストの転送に加えて、アップロードディレクトリ、フロントエンド静的リソース、ファイルアクセスルート `/files/`、WebSocket、`.well-known` ルート、SPA フォールバックページも処理する必要があります。
 
 `test2` を例にとると、Nginx に関連する主要なファイルとディレクトリには通常、次のものが含まれます。
 
@@ -138,6 +139,7 @@ nb proxy nginx reload
 - `uploads`: `alias` を通じてアップロード ディレクトリを公開します
 - `dist`: `alias` を通じてフロントエンド ビルド製品ディレクトリを公開します。
 - `well-known`: OAuth / OpenID 関連の検出パスを処理します。
+- `files`: `/files/` 配下のファイルアクセスリクエストをバックエンドアプリケーションへ転送します
 - `api`: `/api/` リクエストをバックエンド アプリケーションに転送します
 - `ws`: WebSocket リクエストをバックエンド アプリケーションに転送します。
 - `spa`: `/` および `/v/` のフロントエンド エントリと `try_files` フォールバックを提供します
@@ -153,6 +155,11 @@ location / {
 `test2` のような CLI でホストされるアプリケーションの場合、実際のデプロイメントに近い構造は通常次のようになります。
 
 ```nginx
+map $request_uri $legacy_file_app {
+    default "";
+    ~[?&]__appName=(?<legacy_file_app_name>[A-Za-z0-9_-]+)(?:&|$) $legacy_file_app_name;
+}
+
 server {
     listen 80;
     server_name c.local.nocobase.com;
@@ -163,6 +170,19 @@ server {
 
     include NB_CLI_ROOT/.nocobase/proxy/nginx/snippets/mime-types.conf;
     include NB_CLI_ROOT/.nocobase/proxy/nginx/snippets/gzip.conf;
+
+    location = /_nocobase_legacy_file_auth {
+        internal;
+        proxy_pass http://127.0.0.1:56575/api/auth:checkLegacyFileAccess;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Cookie $http_cookie;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-App $legacy_file_app;
+        proxy_set_header X-Original-URI $request_uri;
+        proxy_set_header Host $final_host;
+        proxy_set_header X-Forwarded-Proto $upstream_x_forwarded_proto;
+    }
 
     location /storage/uploads/ {
         alias NB_CLI_ROOT/test2/storage/uploads/;
@@ -176,6 +196,11 @@ server {
 
     location ~ ^/\\.well-known/(?<well_known>oauth-authorization-server|openid-configuration)/(?<resource_path>.+)$ {
         rewrite ^ /$resource_path/.well-known/$well_known break;
+        proxy_pass http://127.0.0.1:56575;
+        include NB_CLI_ROOT/.nocobase/proxy/nginx/snippets/proxy-location.conf;
+    }
+
+    location ^~ /files/ {
         proxy_pass http://127.0.0.1:56575;
         include NB_CLI_ROOT/.nocobase/proxy/nginx/snippets/proxy-location.conf;
     }
@@ -210,6 +235,8 @@ server {
 }
 ```
 
+`map` ディレクティブは Nginx の `http {}` コンテキストに置く必要があります。`__appName` からサブアプリを判定します。`proxy_pass` の `/api/` は実際の `API_BASE_PATH` と一致させ、`APP_PUBLIC_PATH` 使用時はアップロードと認証の両方に同じプレフィックスを使ってください。
+
 ここで重要な点が 2 つあります。
 
 - `NB_CLI_ROOT/.nocobase/proxy/nginx/...` 以下は、CLI によって維持されるエージェント補助ファイルです。
@@ -229,7 +256,17 @@ nb proxy nginx generate --env test2 --host c.local.nocobase.com
 2. 生成された結果に基づいて、ルーティング構造と実際のパスを確認します。
 3. 次に、ドメイン名、実行モード、マウント パスに従って手動で調整します。
 
-通常、この方法では、構成を最初から手書きするよりも、WebSocket、静的リソース、アップロード ディレクトリ、または SPA フォールバック ページに関連する詳細を見逃す可能性が低くなります。
+通常、この方法では、構成を最初から手書きするよりも、`/files/`、WebSocket、静的リソース、アップロードディレクトリ、SPA フォールバックページに関連する詳細を見逃しにくくなります。
+
+:::warning 注意
+
+`/files/` は NocoBase の認証を通す必要があるアプリケーションルートです。静的ディレクトリとして処理したり、SPA フォールバックへ流したりしないでください。NocoBase バックエンドへ転送し、`location /` などのフロントエンドフォールバックルールより前に配置します。
+
+`APP_PUBLIC_PATH=/nocobase/` を設定している場合は、`/nocobase/files/` も転送してください。既存のファイル URL との互換性のため、ルートの `/files/` ルールも残します。
+
+既存の `/storage/uploads/` URL はデフォルトでログインが必要です。`alias` で配信する場合は、先に `auth_request` で `auth:checkLegacyFileAccess` を呼び出してください。匿名アクセスとの互換性が必要なら `LEGACY_LOCAL_STORAGE_PUBLIC_ACCESS=true` を設定して再起動し、Nginx のチェックは削除しないでください。`/files/` の権限は変わりません。
+
+:::
 
 ## HTTPS の処理方法
 

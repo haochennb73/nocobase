@@ -111,6 +111,7 @@ In:
 - `NB_CLI_ROOT/test2/storage/...` Im Folgenden sind die eigenen statischen Ressourcen und Upload-Verzeichnisse der Anwendung aufgeführt
 - `app.conf` kann geändert werden, der verwaltete NocoBase-Block muss jedoch beibehalten werden
 – `index-v1.html` und `index-v2.html` schreiben Ressourcenadressen automatisch entsprechend dem aktuellen Umgebungs-Unterpfad, der aktiven Client-Version und `CDN_BASE_URL` um.
+- `maps-http.conf` und `uploads-location.conf` schützen gemeinsam historische `/storage/uploads/`-URLs: Sie ermitteln die Unteranwendung und prüfen vor der Dateiausgabe die Anmeldung per `auth_request`.
 
 :::Warnhinweis
 
@@ -122,7 +123,7 @@ Wenn Sie eine Nginx-Konfiguration auf Site-Ebene hinzufügen möchten, z. B. Str
 
 Wenn Ihre Anwendung nicht über die CLI gehostet wird oder Sie die komplette Nginx-Konfiguration ausdrücklich selbst pflegen möchten, können Sie diese auch manuell schreiben.
 
-Für NocoBase ist der Produktions-Reverse-Proxy jedoch normalerweise mehr als ein einfacher `proxy_pass`. Zusätzlich zur Weiterleitung von API-Anfragen an die Back-End-Anwendung muss eine vollständige und nutzbare Konfiguration normalerweise das Upload-Verzeichnis, die statischen Front-End-Ressourcen, WebSocket, die `.well-known`-Route und die SPA-Fallback-Seite verwalten.
+Für NocoBase ist der Produktions-Reverse-Proxy jedoch normalerweise mehr als ein einfacher `proxy_pass`. Zusätzlich zur Weiterleitung von API-Anfragen an die Back-End-Anwendung muss eine vollständige und nutzbare Konfiguration normalerweise das Upload-Verzeichnis, die statischen Front-End-Ressourcen, die Dateizugriffsroute `/files/`, WebSocket, die `.well-known`-Route und SPA-Fallback-Seiten verwalten.
 
 Am Beispiel von `test2` umfassen wichtige Dateien und Verzeichnisse im Zusammenhang mit Nginx normalerweise:
 
@@ -138,6 +139,7 @@ Mit anderen Worten: Die handschriftliche Konfiguration muss in der Regel mindest
 - `uploads`: Stellen Sie das Upload-Verzeichnis über `alias` bereit.
 - `dist`: Machen Sie das Front-End-Build-Produktverzeichnis über `alias` verfügbar.
 - `well-known`: Behandelt OAuth-/OpenID-bezogene Erkennungspfade
+- `files`: Leitet Dateizugriffsanfragen unter `/files/` an die Backend-Anwendung weiter
 - `api`: `/api/`-Anfrage an die Backend-Anwendung weiterleiten
 - `ws`: WebSocket-Anfragen an die Backend-Anwendung weiterleiten
 - `spa`: Bietet Front-End-Eintrag und `try_files` Fallback für `/` und `/v/`
@@ -153,6 +155,11 @@ location / {
 Für eine CLI-gehostete Anwendung wie `test2` würde eine Struktur, die einer echten Bereitstellung näher kommt, normalerweise wie folgt aussehen:
 
 ```nginx
+map $request_uri $legacy_file_app {
+    default "";
+    ~[?&]__appName=(?<legacy_file_app_name>[A-Za-z0-9_-]+)(?:&|$) $legacy_file_app_name;
+}
+
 server {
     listen 80;
     server_name c.local.nocobase.com;
@@ -163,6 +170,19 @@ server {
 
     include NB_CLI_ROOT/.nocobase/proxy/nginx/snippets/mime-types.conf;
     include NB_CLI_ROOT/.nocobase/proxy/nginx/snippets/gzip.conf;
+
+    location = /_nocobase_legacy_file_auth {
+        internal;
+        proxy_pass http://127.0.0.1:56575/api/auth:checkLegacyFileAccess;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Cookie $http_cookie;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-App $legacy_file_app;
+        proxy_set_header X-Original-URI $request_uri;
+        proxy_set_header Host $final_host;
+        proxy_set_header X-Forwarded-Proto $upstream_x_forwarded_proto;
+    }
 
     location /storage/uploads/ {
         alias NB_CLI_ROOT/test2/storage/uploads/;
@@ -176,6 +196,11 @@ server {
 
     location ~ ^/\\.well-known/(?<well_known>oauth-authorization-server|openid-configuration)/(?<resource_path>.+)$ {
         rewrite ^ /$resource_path/.well-known/$well_known break;
+        proxy_pass http://127.0.0.1:56575;
+        include NB_CLI_ROOT/.nocobase/proxy/nginx/snippets/proxy-location.conf;
+    }
+
+    location ^~ /files/ {
         proxy_pass http://127.0.0.1:56575;
         include NB_CLI_ROOT/.nocobase/proxy/nginx/snippets/proxy-location.conf;
     }
@@ -210,6 +235,8 @@ server {
 }
 ```
 
+Die `map`-Direktive muss im Nginx-Kontext `http {}` stehen. Sie ermittelt die Unteranwendung aus dem Parameter `__appName`. `/api/` in `proxy_pass` muss dem tatsächlichen `API_BASE_PATH` entsprechen; bei `APP_PUBLIC_PATH` muss dasselbe Präfix für Upload- und Authentifizierungsroute gelten.
+
 Hier gibt es zwei wesentliche Punkte:
 
 - `NB_CLI_ROOT/.nocobase/proxy/nginx/...` Im Folgenden finden Sie Agentenhilfsdateien, die von der CLI verwaltet werden
@@ -229,7 +256,17 @@ Ein umsichtigerer Ansatz ist normalerweise:
 2. Bestätigen Sie die Routing-Struktur und den tatsächlichen Pfad basierend auf den generierten Ergebnissen.
 3. Nehmen Sie dann manuelle Anpassungen entsprechend Ihrem Domainnamen, Ausführungsmodus und Bereitstellungspfad vor.
 
-Dabei ist es in der Regel weniger wahrscheinlich, dass Details zu WebSockets, statischen Ressourcen, Upload-Verzeichnissen oder SPA-Fallback-Seiten übersehen werden, als wenn Sie eine Konfiguration von Grund auf neu schreiben.
+Dabei ist es in der Regel weniger wahrscheinlich, dass Details zu `/files/`, WebSockets, statischen Ressourcen, Upload-Verzeichnissen oder SPA-Fallback-Seiten übersehen werden, als wenn Sie eine Konfiguration von Grund auf neu schreiben.
+
+:::warning Hinweis
+
+`/files/` ist eine Anwendungsroute, die die NocoBase-Autorisierung durchlaufen muss. Behandeln Sie sie nicht als statisches Verzeichnis und lassen Sie sie nicht in den SPA-Fallback fallen. Leiten Sie die Route an das NocoBase-Backend weiter und platzieren Sie die Regel vor `location /` und anderen Front-End-Fallback-Regeln.
+
+Wenn `APP_PUBLIC_PATH=/nocobase/` konfiguriert ist, leiten Sie zusätzlich `/nocobase/files/` weiter. Behalten Sie die Root-Regel `/files/` zur Kompatibilität mit vorhandenen Datei-URLs bei.
+
+Historische `/storage/uploads/`-URLs erfordern standardmäßig eine Anmeldung. Beim Ausliefern per `alias` muss zuerst `auth_request` den NocoBase-Endpunkt `auth:checkLegacyFileAccess` aufrufen. Für anonymen Kompatibilitätszugriff setzen Sie `LEGACY_LOCAL_STORAGE_PUBLIC_ACCESS=true` und starten die Anwendung neu; entfernen Sie die Nginx-Prüfung nicht. `/files/`-Berechtigungen bleiben unverändert.
+
+:::
 
 ## Wie man mit HTTPS umgeht
 

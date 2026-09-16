@@ -8,7 +8,6 @@
  */
 
 import React from 'react';
-import { stripModernClientPrefix } from '@nocobase/client-v2';
 import { Display } from './components/Display';
 import { MarkdownVditor } from './components';
 
@@ -25,13 +24,14 @@ export class MarkdownVditorRuntime {
   }
 
   getCDN() {
-    const base = window['__webpack_public_path__'] || stripModernClientPrefix(this.getPublicPath());
-    return `${base}static/plugins/@nocobase/plugin-field-markdown-vditor/dist/client-v2/vditor`;
+    // 统一使用插件内置的 vditor 静态资源，不依赖公共 CDN（离线/内网环境同样可用）。
+    return this.app.getCdnUrl() + 'static/plugins/@nocobase/plugin-field-markdown-vditor/dist/client/vditor';
   }
 
   initVditorDependency() {
-    const cdn = this.getCDN();
     try {
+      // getCDN 依赖 app.getCdnUrl，放入 try 以保证资源地址解析失败时也只记录日志而不抛出。
+      const cdn = this.getCDN();
       const vditorDepdencePrefix = 'plugin-field-markdown-vditor-dep';
       const vditorDepdence = {
         [`${vditorDepdencePrefix}.katex`]: `${cdn}/dist/js/katex/katex.min.js?v=0.16.9`,

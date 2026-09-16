@@ -26,6 +26,7 @@ import {
   getTemplateAvailabilityDisabledReason,
   normalizeStr,
   parseResourceListResponse,
+  tWithNs,
 } from '../utils/templateCompatibility';
 import { bindInfiniteScrollToFormilySelect, defaultSelectOptionComparator } from '../utils/infiniteSelect';
 import { replaceGridLayoutUid } from '../utils/replaceGridLayoutUid';
@@ -43,6 +44,117 @@ const TEMPLATE_FALLBACK_PATCH_ORIGINAL_GET_STEP_PARAMS = Symbol.for(
   'nocobase.referenceBlockTemplateFallback.originalGetStepParams',
 );
 const TARGET_OWN_CONTEXT_MISSING = Symbol.for('nocobase.referenceBlockTargetOwnContextMissing');
+
+type FilterStateTarget = {
+  setFilterActive?: (filterId: string, active: boolean) => void;
+  hasActiveFilters?: () => boolean;
+  removeFilterSource?: (filterId: string) => void;
+  getDataLoadingMode?: () => 'auto' | 'manual';
+};
+
+type PreparedFilterBlock = {
+  markInitialTargetRefreshHandled?: (targetId: string) => void;
+};
+
+type ReferenceFilterConfig = {
+  filterId?: string;
+  targetId?: string;
+};
+
+type ReferenceFilterManager = {
+  getFilterConfigs?: () => ReferenceFilterConfig[];
+  prepareFiltersForTarget?: (targetId: string) => Promise<Set<PreparedFilterBlock>>;
+  bindToTarget?: (targetId: string) => void;
+};
+
+type ReferenceFilterModel = {
+  context?: {
+    blockModel?: PreparedFilterBlock;
+  };
+};
+
+function isNonEmptyValue(value: unknown): boolean {
+  return value !== undefined && value !== null && String(value).trim() !== '';
+}
+
+function getViewInputArgs(ctx: any, model: any): Record<string, any> {
+  return model?.context?.view?.inputArgs || ctx?.view?.inputArgs || {};
+}
+
+function getAssociationTemplateDisabledReasonFromCurrentRecordView(
+  ctx: any,
+  model: any,
+  tpl: Record<string, any>,
+): string | undefined {
+  const associationName = normalizeStr(tpl?.associationName);
+  const sourceCollectionName = associationName.includes('.') ? associationName.split('.').filter(Boolean)[0] : '';
+  if (!sourceCollectionName) return undefined;
+
+  const viewArgs = getViewInputArgs(ctx, model);
+  const collectionName = normalizeStr(viewArgs?.collectionName);
+  if (!collectionName) {
+    return getTemplateAvailabilityDisabledReason(
+      ctx,
+      tpl,
+      { associationName: '' },
+      { checkResource: false, associationMatch: 'associationResourceOnly' },
+    );
+  }
+
+  const viewDataSourceKey = normalizeStr(viewArgs?.dataSourceKey) || 'main';
+  const templateDataSourceKey = normalizeStr(tpl?.dataSourceKey);
+  if (templateDataSourceKey && viewDataSourceKey && templateDataSourceKey !== viewDataSourceKey) {
+    return tWithNs(ctx, 'Template data source mismatch', {
+      expected: `${viewDataSourceKey}/${collectionName}`,
+      actual: `${templateDataSourceKey}/${sourceCollectionName}`,
+    });
+  }
+
+  if (sourceCollectionName !== collectionName) {
+    return tWithNs(ctx, 'Template collection mismatch', {
+      expected: collectionName,
+      actual: sourceCollectionName,
+    });
+  }
+
+  const hasRecordAnchor = isNonEmptyValue(viewArgs?.filterByTk) || !!viewArgs?.record;
+  if (!hasRecordAnchor) {
+    return getTemplateAvailabilityDisabledReason(
+      ctx,
+      tpl,
+      { associationName: '' },
+      { checkResource: false, associationMatch: 'associationResourceOnly' },
+    );
+  }
+
+  return undefined;
+}
+
+function isMissingFilterByTk(value: unknown) {
+  return value === undefined || value === null || value === '';
+}
+
+function hasDataSourceKey(value: unknown) {
+  return value !== undefined && value !== null && String(value).trim() !== '';
+}
+
+function shouldTemplateTargetFallbackToList(
+  targetInit: Record<string, unknown>,
+  viewArgs: Record<string, unknown>,
+  referenceInit: Record<string, unknown> = {},
+) {
+  if (isMissingFilterByTk(viewArgs?.filterByTk)) {
+    return true;
+  }
+
+  const collectionName = viewArgs?.collectionName ?? referenceInit?.collectionName;
+  if (collectionName !== targetInit?.collectionName) {
+    return true;
+  }
+
+  const dataSourceKey = viewArgs?.dataSourceKey ?? referenceInit?.dataSourceKey;
+  return hasDataSourceKey(dataSourceKey) && dataSourceKey !== targetInit?.dataSourceKey;
+}
 
 /**
  * ReferenceBlockModel（插件版）
@@ -149,6 +261,83 @@ export class ReferenceBlockModel extends BlockModel {
   private _resolvedTargetUid?: string;
   private _invalidTargetUid?: string;
 
+  private _getFilterStateTarget(): FilterStateTarget | undefined {
+    return this._targetModel as FilterStateTarget | undefined;
+  }
+
+  private _getReferenceFilterManager(): ReferenceFilterManager | undefined {
+    return this.context?.filterManager as ReferenceFilterManager | undefined;
+  }
+
+  private _markShellInitialFilterRefreshHandled() {
+    const filterConfigs = this._getReferenceFilterManager()?.getFilterConfigs?.();
+    if (!Array.isArray(filterConfigs)) {
+      return;
+    }
+
+    const filterIds = new Set(
+      filterConfigs
+        .filter((config) => config.targetId === this.uid && typeof config.filterId === 'string' && config.filterId)
+        .map((config) => config.filterId as string),
+    );
+
+    filterIds.forEach((filterId) => {
+      try {
+        const filterModel = this.flowEngine?.getModel?.(filterId) as ReferenceFilterModel | undefined;
+        filterModel?.context?.blockModel?.markInitialTargetRefreshHandled?.(this.uid);
+      } catch (_) {
+        // ignore
+      }
+    });
+  }
+
+  private _createTargetFilterManager(target: FlowModel): ReferenceFilterManager | undefined {
+    const filterManager = this._getReferenceFilterManager();
+    if (!filterManager) {
+      return undefined;
+    }
+
+    const getTargetIdForFilterManager = (targetId: string) => (targetId === target.uid ? this.uid : targetId);
+    return new Proxy(filterManager, {
+      get: (source, prop) => {
+        if (prop === 'prepareFiltersForTarget') {
+          if (typeof source.prepareFiltersForTarget !== 'function') {
+            return undefined;
+          }
+          return (targetId: string) => source.prepareFiltersForTarget?.(getTargetIdForFilterManager(targetId));
+        }
+        if (prop === 'bindToTarget') {
+          if (typeof source.bindToTarget !== 'function') {
+            return undefined;
+          }
+          return (targetId: string) => source.bindToTarget?.(getTargetIdForFilterManager(targetId));
+        }
+
+        const value = Reflect.get(source, prop, source);
+        return typeof value === 'function' ? value.bind(source) : value;
+      },
+    });
+  }
+
+  setFilterActive(filterId: string, active: boolean) {
+    super.setFilterActive(filterId, active);
+    const target = this._getFilterStateTarget();
+    target?.setFilterActive?.(filterId, active);
+  }
+
+  hasActiveFilters(): boolean {
+    return super.hasActiveFilters() || this._getFilterStateTarget()?.hasActiveFilters?.() === true;
+  }
+
+  removeFilterSource(filterId: string) {
+    super.removeFilterSource(filterId);
+    this._getFilterStateTarget()?.removeFilterSource?.(filterId);
+  }
+
+  getDataLoadingMode(): 'auto' | 'manual' {
+    return this._getFilterStateTarget()?.getDataLoadingMode?.() || super.getDataLoadingMode();
+  }
+
   private _restoreTemplateFallbackPatch(target?: FlowModel) {
     if (!target) return;
     const original = (target as any)[TEMPLATE_FALLBACK_PATCH_ORIGINAL_GET_STEP_PARAMS] as
@@ -253,20 +442,8 @@ export class ReferenceBlockModel extends BlockModel {
 
   private _shouldTemplateFallbackToList(init: Record<string, any>): boolean {
     const viewArgs = (this as any)?.context?.view?.inputArgs || {};
-    const filterByTk = viewArgs?.filterByTk;
-    const missingFilterByTk = filterByTk === undefined || filterByTk === null || filterByTk === '';
-    if (missingFilterByTk) {
-      return true;
-    }
-    const collectionMismatch = viewArgs?.collectionName !== init?.collectionName;
-    if (collectionMismatch) {
-      return true;
-    }
-    const viewDataSourceKey = viewArgs?.dataSourceKey;
-    const hasViewDataSourceKey =
-      viewDataSourceKey !== undefined && viewDataSourceKey !== null && String(viewDataSourceKey).trim() !== '';
-    const dataSourceMismatch = hasViewDataSourceKey && viewDataSourceKey !== init?.dataSourceKey;
-    return !!dataSourceMismatch;
+    const referenceInit = (this.getStepParams?.('resourceSettings', 'init') || {}) as Record<string, any>;
+    return shouldTemplateTargetFallbackToList(init, viewArgs, referenceInit);
   }
 
   private _refreshTargetResourceState(target?: FlowModel) {
@@ -345,6 +522,10 @@ export class ReferenceBlockModel extends BlockModel {
 
     const bridge = new FlowContext();
     bridge.defineProperty('engine', { value: engine });
+    bridge.defineProperty('filterManager', {
+      cache: false,
+      get: () => this._createTargetFilterManager(target),
+    });
     bridge.addDelegate(this.context as any);
     target.context.addDelegate(bridge);
     targetContext[TARGET_CONTEXT_BRIDGE_MARKER] = true;
@@ -363,6 +544,19 @@ export class ReferenceBlockModel extends BlockModel {
       parent: this,
       subKey: 'target',
       model: target,
+    });
+  }
+
+  private async _bindReferenceFiltersToResolvedTarget() {
+    const filterManager = this._getReferenceFilterManager();
+    if (!filterManager?.prepareFiltersForTarget && !filterManager?.bindToTarget) {
+      return;
+    }
+
+    const preparedFilterBlocks = await filterManager.prepareFiltersForTarget?.(this.uid);
+    filterManager.bindToTarget?.(this.uid);
+    preparedFilterBlocks?.forEach((filterBlock) => {
+      filterBlock?.markInitialTargetRefreshHandled?.(this.uid);
     });
   }
 
@@ -428,6 +622,7 @@ export class ReferenceBlockModel extends BlockModel {
         },
       });
     });
+    this._markShellInitialFilterRefreshHandled();
   }
 
   // 让 `ctx.model.setProps/getProps` 在引用区块场景下也作用到目标模型
@@ -513,6 +708,7 @@ export class ReferenceBlockModel extends BlockModel {
 
   public async onDispatchEventStart(eventName: string): Promise<void> {
     if (eventName !== 'beforeRender') return;
+    this._markShellInitialFilterRefreshHandled();
     const stepParams = (this.getStepParams as any)?.('referenceSettings', 'target') || {};
     const targetUid = (stepParams?.targetUid || '').trim() || undefined;
     if (!targetUid) {
@@ -602,6 +798,7 @@ export class ReferenceBlockModel extends BlockModel {
     // 关键：让 ctx.model.props.xxx 的写法在引用区块中也能作用到目标区块
     // - beforeRender 的 flows 会在 onDispatchEventStart 之后执行，因此这里同步可以保证事件流拿到的是目标 props
     this.props = target.props;
+    await this._bindReferenceFiltersToResolvedTarget();
   }
 
   async destroy(): Promise<boolean> {
@@ -687,10 +884,11 @@ ReferenceBlockModel.registerFlow({
             const fromInit = normalizeStr(init?.associationName);
             if (fromInit) return fromInit;
 
-            const assocName = normalizeStr((m as any)?.context?.association?.resourceName);
+            const context = (m as any)?.context || {};
+            const assocName = normalizeStr(context?.association?.resourceName);
             if (assocName) return assocName;
 
-            const resourceCtx = (m as any)?.context?.resource;
+            const resourceCtx = context?.resource;
             if (resourceCtx) {
               const fromResourceAssoc =
                 typeof resourceCtx.getAssociationName === 'function'
@@ -702,10 +900,6 @@ ReferenceBlockModel.registerFlow({
                 typeof resourceCtx.getResourceName === 'function' ? normalizeStr(resourceCtx.getResourceName()) : '';
               if (fromResourceName) return fromResourceName;
             }
-
-            const viewArgs = (m as any)?.context?.view?.inputArgs || {};
-            const fromView = normalizeStr(viewArgs?.associationName);
-            if (fromView) return fromView;
           } catch (_) {
             // ignore
           }
@@ -713,6 +907,9 @@ ReferenceBlockModel.registerFlow({
         };
         const expectedAssociationName = resolveExpectedAssociationName();
         const getTemplateDisabledReason = (tpl: Record<string, any>): string | undefined => {
+          if (!expectedAssociationName) {
+            return getAssociationTemplateDisabledReasonFromCurrentRecordView(ctx, m, tpl);
+          }
           return getTemplateAvailabilityDisabledReason(
             ctx,
             tpl,
@@ -1033,17 +1230,12 @@ ReferenceBlockModel.registerFlow({
           if (isSupported) {
             const init = (duplicated as any)?.stepParams?.resourceSettings?.init;
             if (init && typeof init === 'object' && Object.prototype.hasOwnProperty.call(init, 'filterByTk')) {
-              const viewArgs = ((ctx.model as any)?.context?.view?.inputArgs || {}) as any;
-              const filterByTk = viewArgs?.filterByTk;
-              const missingFilterByTk = filterByTk === undefined || filterByTk === null || filterByTk === '';
-              const collectionMismatch = viewArgs?.collectionName !== init?.collectionName;
-              const viewDataSourceKey = viewArgs?.dataSourceKey;
-              const hasViewDataSourceKey =
-                viewDataSourceKey !== undefined &&
-                viewDataSourceKey !== null &&
-                String(viewDataSourceKey).trim() !== '';
-              const dataSourceMismatch = hasViewDataSourceKey && viewDataSourceKey !== init?.dataSourceKey;
-              if (missingFilterByTk || collectionMismatch || dataSourceMismatch) {
+              const viewArgs = ((ctx.model as any)?.context?.view?.inputArgs || {}) as Record<string, unknown>;
+              const referenceInit = ((ctx.model as any)?.getStepParams?.('resourceSettings', 'init') || {}) as Record<
+                string,
+                unknown
+              >;
+              if (shouldTemplateTargetFallbackToList(init as Record<string, unknown>, viewArgs, referenceInit)) {
                 delete (init as any).filterByTk;
               }
             }

@@ -124,7 +124,7 @@ Si desea compensar la configuración a nivel de sitio de Caddy, como encabezados
 
 Si su aplicación no está alojada en CLI o desea explícitamente mantener usted mismo la configuración completa de Caddy, también puede escribirla a mano.
 
-Sin embargo, para NocoBase, la entrada del entorno de producción generalmente no es solo un simple `reverse_proxy`. Además de reenviar solicitudes de API a la aplicación de backend, una configuración de Caddy completa y funcional generalmente también necesita manejar el directorio de carga, los recursos estáticos de front-end, el enrutamiento `.well-known`, WebSocket y la página alternativa de SPA.
+Sin embargo, para NocoBase, la entrada del entorno de producción generalmente no es solo un simple `reverse_proxy`. Además de reenviar solicitudes de API a la aplicación backend, una configuración completa y funcional de Caddy generalmente debe gestionar el directorio de carga, los recursos estáticos de front-end, la ruta de acceso a archivos `/files/`, el enrutamiento `.well-known`, WebSocket y las páginas alternativas de la SPA.
 
 Tomando `test2` como ejemplo, los directorios clave relacionados con Caddy generalmente incluyen:
 
@@ -139,6 +139,7 @@ En otras palabras, la configuración escrita a mano normalmente debe cubrir al m
 - `dist`: exponer el directorio de productos de compilación front-end
 - `oauth well-known`: Manejar rutas de descubrimiento de OAuth
 - `openid well-known`: Manejar rutas de descubrimiento de OpenID
+- `files`: reenviar las solicitudes de acceso a archivos bajo `/files/` a la aplicación backend
 - `api`: reenviar la solicitud `/api/` a la aplicación backend
 - `ws`: reenvía solicitudes de WebSocket a la aplicación backend
 - `spa v2`: proporciona entrada frontal y página de retorno para `/v/`
@@ -163,10 +164,31 @@ c.local.nocobase.com {
     }
 
     handle_path /storage/uploads/* {
-        root * NB_CLI_ROOT/test2/storage/uploads
-        header Cache-Control public
-        header X-Content-Type-Options nosniff
-        file_server
+        route {
+            request_header -X-NocoBase-Auth-Set-Cookie
+            forward_auth host.docker.internal:56575 {
+                uri /api/auth:checkLegacyFileAccess
+                header_up X-App {query.__appName}
+                copy_headers Set-Cookie>X-NocoBase-Auth-Set-Cookie
+            }
+
+            @refreshedAuth header X-NocoBase-Auth-Set-Cookie *
+            header @refreshedAuth Set-Cookie {header.X-NocoBase-Auth-Set-Cookie}
+            header Cache-Control "private, no-store"
+            header Content-Security-Policy sandbox
+            header X-Content-Type-Options nosniff
+            header Content-Disposition inline
+
+            @activeUploadedContent path_regexp activeUploadedContent (?i)\.(?:htm|html|pdf|svg|svgz|xht|xhtml|xml|xsl|xslt)$
+            header @activeUploadedContent Content-Disposition attachment
+            @download query download=1
+            header @download Content-Disposition attachment
+            @markdown path_regexp markdown (?i)\.md$
+            header @markdown Content-Type text/markdown
+
+            root * NB_CLI_ROOT/test2/storage/uploads
+            file_server
+        }
     }
 
     handle_path /dist/* {
@@ -184,6 +206,10 @@ c.local.nocobase.com {
     @openid path_regexp openid ^/\\.well-known/openid-configuration/(.+)$
     handle @openid {
         rewrite * /{re.openid.1}/.well-known/openid-configuration
+        reverse_proxy host.docker.internal:56575
+    }
+
+    handle /files/* {
         reverse_proxy host.docker.internal:56575
     }
 
@@ -249,7 +275,15 @@ Un enfoque más prudente suele ser:
 2. Confirme la estructura de enrutamiento y la ruta real según los resultados generados.
 3. Luego realice ajustes manuales según su nombre de dominio, modo de ejecución y ruta de montaje.
 
-Por lo general, es menos probable que se pierdan detalles relacionados con WebSockets, recursos estáticos, directorios de carga, rutas `.well-known` o páginas de respaldo de SPA que escribir a mano una configuración desde cero.
+Por lo general, es menos probable que se pierdan detalles relacionados con `/files/`, WebSockets, recursos estáticos, directorios de carga, rutas `.well-known` o páginas de respaldo de la SPA que al escribir una configuración desde cero.
+
+:::warning Atención
+
+`/files/` es una ruta de la aplicación que debe pasar por la autorización de NocoBase. No la trates como un directorio estático ni permitas que llegue al fallback de la SPA. Reenvíala al backend de NocoBase y coloca la regla antes de `handle_path /*` y de otras reglas de fallback del front-end.
+
+Si se configura `APP_PUBLIC_PATH=/nocobase/`, reenvía también `/nocobase/files/*`. Conserva la regla raíz `/files/*` para mantener la compatibilidad con las URL de archivos existentes.
+
+:::
 
 ## Verificar y recargar la configuración
 
