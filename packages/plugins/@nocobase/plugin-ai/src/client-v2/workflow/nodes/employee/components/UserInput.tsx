@@ -11,7 +11,7 @@ import React from 'react';
 import { Form, Space, theme } from 'antd';
 import { css } from '@emotion/css';
 import { FlowContextSelector, type MetaTreeNode } from '@nocobase/flow-engine';
-import { useWorkflowVariableOptions } from '@nocobase/plugin-workflow/client-v2';
+import { useWorkflowVariableOptions, WorkflowVariableTag } from '@nocobase/plugin-workflow/client-v2';
 import { RemoteSelect } from '../../../../components/RemoteSelect';
 import { useT } from '../../../../locale';
 
@@ -94,21 +94,27 @@ export function UserInput({ value, onChange }: UserInputProps) {
 
   return (
     <Space.Compact className={compactClassName}>
-      <RemoteSelect
-        manual={false}
-        fieldNames={{
-          label: 'nickname',
-          value: 'id',
-        }}
-        service={{
-          resource: 'users',
-        }}
-        value={variableValue ? undefined : value}
-        onChange={(nextValue) => onChange?.(nextValue as UserInputValue)}
-      />
+      {/* A workflow variable is not a user id, so the user select shows a tag instead of an empty control. */}
+      {variableValue ? (
+        <WorkflowVariableTag value={variableValue} metaTree={metaTree} onClear={() => onChange?.(undefined)} />
+      ) : (
+        <RemoteSelect
+          manual={false}
+          fieldNames={{
+            label: 'nickname',
+            value: 'id',
+          }}
+          service={{
+            resource: 'users',
+          }}
+          value={value}
+          onChange={(nextValue) => onChange?.(nextValue as UserInputValue)}
+        />
+      )}
       <FlowContextSelector
         value={variableValue}
         metaTree={metaTree}
+        active={Boolean(variableValue)}
         parseValueToPath={parseWorkflowValueToPath}
         formatPathToValue={formatWorkflowPathToValue}
         onlyLeafSelectable

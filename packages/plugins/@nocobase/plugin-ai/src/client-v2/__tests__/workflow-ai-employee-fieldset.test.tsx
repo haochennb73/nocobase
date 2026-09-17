@@ -111,11 +111,19 @@ vi.mock('@nocobase/plugin-workflow/client-v2', () => {
   );
   class Instruction {}
 
+  const WorkflowVariableTag = ({ value, onClear }: { value?: string; onClear?: () => void }) => (
+    <span aria-label="workflow-variable-tag">
+      {value}
+      {onClear ? <button type="button" aria-label="workflow-variable-tag-clear" onClick={onClear} /> : null}
+    </span>
+  );
+
   return {
     FilterDynamicComponent,
     Instruction,
     useWorkflowVariableOptions,
     WorkflowVariableInput,
+    WorkflowVariableTag,
     WorkflowVariableTextArea,
     WorkflowVariableJsonTextArea,
   };
@@ -198,6 +206,9 @@ describe('AI employee workflow fieldset', () => {
     const onChange = vi.fn();
     render(<UserInput value="{{$context.data}}" onChange={onChange} />);
 
+    expect(screen.getByLabelText('workflow-variable-tag')).toHaveTextContent('{{$context.data}}');
+    expect(screen.queryByLabelText('remote-select')).toBeNull();
+
     const selector = screen.getByRole('button', { name: 'workflow-variable-selector' });
     expect(selector).toHaveAttribute('data-value', '{{$context.data}}');
     expect(selector).toHaveAttribute('data-only-leaf-selectable', 'true');
@@ -210,6 +221,22 @@ describe('AI employee workflow fieldset', () => {
 
     fireEvent.click(selector);
     expect(onChange).toHaveBeenCalledWith('{{$context.user.id}}');
+  });
+
+  it('shows the selected operator variable and clears it back to the user select', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<UserInput value={12} onChange={onChange} />);
+
+    expect(screen.getByLabelText('remote-select')).toHaveValue('12');
+    expect(screen.queryByLabelText('workflow-variable-tag')).toBeNull();
+
+    rerender(<UserInput value="{{$context.data.user.id}}" onChange={onChange} />);
+
+    expect(screen.getByLabelText('workflow-variable-tag')).toHaveTextContent('{{$context.data.user.id}}');
+    expect(screen.queryByLabelText('remote-select')).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('workflow-variable-tag-clear'));
+    expect(onChange).toHaveBeenCalledWith(undefined);
   });
 
   it('submits the current browser origin for file URL same-origin checks', async () => {
