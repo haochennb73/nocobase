@@ -71,10 +71,10 @@ export default function BotListPage() {
       width: 600,
       content: (
         <ul style={{ margin: 0, paddingLeft: 20 }}>
-          <li>{t('About to open the long connection with Bot ID: {{botId}}.', { botId: record.botId })}</li>
+          <li>{t('About to open the long connection with WeCom Bot ID: {{botId}}.', { botId: record.botId })}</li>
           <li>
             {t(
-              'WeCom allows only one live connection per Bot ID. Connecting here kicks any other connection of the same bot, and a kicked connection never auto-recovers — it must be reconnected manually.',
+              'WeCom allows only one live connection per WeCom Bot ID. Connecting here kicks any other connection of the same bot, and a kicked connection never auto-recovers — it must be reconnected manually.',
             )}
           </li>
           <li>{t('If the status turns to Error after connecting, check the Last error column for the reason.')}</li>
@@ -134,9 +134,13 @@ export default function BotListPage() {
 
   const columns = useMemo<ColumnsType<BotRecord>>(
     () => [
-      // Full display without ellipsis (issue 5a). The long Bot ID is intentionally not a
+      // Full display without ellipsis (issue 5a). The long WeCom Bot ID is intentionally not a
       // column (issue 5b) — it stays visible in the edit form only.
       { title: t('Name'), dataIndex: 'name' },
+      // The primary key, labelled the same way as the `Bot ID` field that tasks, send messages and
+      // conversations carry as a foreign key — so a row here can be matched to those records. The
+      // WeCom Bot ID is a different value and is intentionally not shown (see the comment above).
+      { title: t('Bot ID'), dataIndex: 'id', width: 80 },
       {
         title: t('Enabled'),
         dataIndex: 'enabled',
@@ -201,12 +205,12 @@ export default function BotListPage() {
             <li>{t('The server must allow outbound WebSocket connections to wss://openws.work.weixin.qq.com.')}</li>
             <li>
               {t(
-                'WeCom allows only one live connection per Bot ID. A connection kicked by a newer one never auto-recovers; reconnect it manually from this page (status shows Error with the reason).',
+                'WeCom allows only one live connection per WeCom Bot ID. A connection kicked by a newer one never auto-recovers; reconnect it manually from this page (status shows Error with the reason).',
               )}
             </li>
             <li>
               {t(
-                'Find Bot ID and Secret in WeCom Admin Console: App Management → Intelligent Bot → long-connection settings.',
+                'Find WeCom Bot ID and Secret in WeCom Admin Console: App Management → Intelligent Bot → long-connection settings.',
               )}
             </li>
           </ul>

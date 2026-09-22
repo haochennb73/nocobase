@@ -107,8 +107,8 @@ export const DEFAULT_UNBOUND_REPLY =
   '您尚未绑定 NocoBase 账号，暂无法为您处理消息。请联系管理员在「用户管理」中为您维护企微 UserID 后再试。';
 
 // Persisted as `lastError` when WeCom kicks the live connection (another subscription with
-// the same Bot ID appeared). The SDK treats a kick as terminal — it never auto-reconnects
+// the same WeCom Bot ID appeared). The SDK treats a kick as terminal — it never auto-reconnects
 // after `disconnected_event` — so the status must be surfaced as a hard error, not
 // "reconnecting". Recovered by clicking Connect again once the other connection is gone.
 export const KICK_DISCONNECT_MESSAGE =
-  'Connection closed by WeCom server: a newer connection subscribed with the same Bot ID (mutual kick). Auto-reconnect is disabled after a kick; click "Connect" again once the other connection is gone.';
+  'Connection closed by WeCom server: a newer connection subscribed with the same WeCom Bot ID (mutual kick). Auto-reconnect is disabled after a kick; click "Connect" again once the other connection is gone.';

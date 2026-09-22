@@ -98,7 +98,7 @@ export function BotFormView(props: { mode: 'create' | 'edit'; record?: BotRecord
         </Form.Item>
         <Form.Item
           name="botId"
-          label={t('Bot ID')}
+          label={t('WeCom Bot ID')}
           extra={t('From WeCom Admin Console: App Management → Intelligent Bot → long-connection settings.')}
           rules={[{ required: true, message: t('The field value is required') }]}
         >

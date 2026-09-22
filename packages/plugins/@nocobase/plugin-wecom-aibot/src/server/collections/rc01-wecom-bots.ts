@@ -34,7 +34,7 @@ export default defineCollection({
       unique: true,
       uiSchema: {
         type: 'string',
-        title: `{{t("Bot ID", { ns: "${I18N_NAMESPACE}" })}}`,
+        title: `{{t("WeCom Bot ID", { ns: "${I18N_NAMESPACE}" })}}`,
         'x-component': 'Input',
       },
     },
