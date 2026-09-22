@@ -9,7 +9,7 @@
 
 import React, { memo, useEffect, useMemo } from 'react';
 import { Bubble } from '@ant-design/x';
-import { Alert, Button, Collapse, Flex, Space, Spin, theme, Tooltip, Typography } from 'antd';
+import { Alert, App, Button, Collapse, Flex, Space, Spin, theme, Tooltip, Typography } from 'antd';
 import { CopyOutlined, EditOutlined, LoadingOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { toToolsMap } from '@nocobase/client-v2';
 import { observer } from '@nocobase/flow-engine';
@@ -213,6 +213,7 @@ export const AIMessage: React.FC<{
 }> = observer(({ msg }) => {
   const t = useT();
   const { token } = theme.useToken();
+  const { message } = App.useApp();
   const aiConfigRepository = useAIConfigRepository();
   const toolsLoading = aiConfigRepository.aiToolsLoading;
   const toolsMap = useMemo(() => toToolsMap(aiConfigRepository.aiTools || []), [aiConfigRepository.aiTools]);
@@ -232,8 +233,13 @@ export const AIMessage: React.FC<{
     color: token.colorTextSecondary,
     fontSize: token.fontSizeSM,
   };
-  const copy = () => {
-    copyText(msg.content);
+  const copy = async () => {
+    const copied = await copyText(msg.content);
+    if (copied) {
+      message.success(t('Copied'));
+    } else {
+      message.error(t('Copy failed'));
+    }
   };
   const messageActions =
     msg.type !== 'greeting' ? (
@@ -326,6 +332,7 @@ export const UserMessage: React.FC<{
 }> = observer(({ msg }) => {
   const t = useT();
   const { token } = theme.useToken();
+  const { message } = App.useApp();
   const runtime = useChatBoxRuntime();
   const { chatBoxModel, chatSenderModel } = runtime;
   const senderRef = chatSenderModel.senderRef;
@@ -341,8 +348,13 @@ export const UserMessage: React.FC<{
     color: token.colorTextSecondary,
     fontSize: token.fontSizeSM,
   };
-  const copy = () => {
-    copyText(msg.content);
+  const copy = async () => {
+    const copied = await copyText(msg.content);
+    if (copied) {
+      message.success(t('Copied'));
+    } else {
+      message.error(t('Copy failed'));
+    }
   };
 
   return (
@@ -591,23 +603,30 @@ function fallbackCopyText(text: string) {
   textarea.style.opacity = '0';
   document.body.appendChild(textarea);
   textarea.select();
+  let copied = false;
   try {
-    document.execCommand('copy');
+    copied = document.execCommand('copy');
   } catch (error) {
     console.error(error);
   } finally {
     document.body.removeChild(textarea);
   }
+  return copied;
 }
 
-function copyText(content: unknown) {
+// 返回是否真的复制成功：消息上的复制按钮要据此提示成功或失败，不能只依赖 API 是否存在。
+async function copyText(content: unknown) {
   const text = stringifyContent(content);
   if (!text) {
-    return;
+    return false;
   }
   if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).catch(() => fallbackCopyText(text));
-    return;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (error) {
+      console.error(error);
+    }
   }
-  fallbackCopyText(text);
+  return fallbackCopyText(text);
 }
